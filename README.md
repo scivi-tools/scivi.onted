@@ -13,6 +13,10 @@ npm install
 npm run dev        # start the editor with hot reload
 ```
 
+`npm install` also downloads the Electron binary for your platform (the `postinstall` script):
+since Electron 44, the `electron` package no longer does this by itself, and `electron-vite` 5
+expects the binary to be present.
+
 Other scripts:
 
 | Command             | What it does                                         |
