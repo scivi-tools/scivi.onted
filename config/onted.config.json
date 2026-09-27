@@ -1,0 +1,18 @@
+{
+    "$comment": "SciVi.OntEd configuration. Missing keys fall back to the built-in defaults.",
+    "systemNodeNames": [
+        "Input",
+        "Output",
+        "Setting"
+    ],
+    "relationColors": {
+        "is_a": "#0000FF",
+        "a_part_of": "#FEAE00",
+        "has": "#C80000",
+        "is_instance": "#FF00FF",
+        "is_used": "#B51700",
+        "is_hosted": "#56C1FF",
+        "base_type": "#B2B2B2",
+        "language": "#FF9400"
+    }
+}

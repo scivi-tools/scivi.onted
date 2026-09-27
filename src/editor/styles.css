@@ -1,0 +1,29 @@
+:root {
+  --bg: #f4f4f2;
+  --panel: #ffffff;
+  --border: #d6d6d2;
+  --text: #1d1d1b;
+  --muted: #6d6d68;
+  --accent: #2f6fdd;
+  --node-fill: #ffffff;
+  --node-system-fill: #fff6c2;
+  --node-stroke: #5a5a55;
+  --warning: #b35c00;
+  --error: #c62828;
+  font-family: system-ui, -apple-system, 'Segoe UI', Ubuntu, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}

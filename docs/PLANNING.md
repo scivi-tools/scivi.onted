@@ -234,7 +234,8 @@ This section records the decisions agreed so far.
 
 * Desktop shell: [Electron](https://www.electronjs.org/). The renderer runs with context isolation;
   it talks to the main process only through a narrow API exposed by the preload script.
-* Language: TypeScript (strict mode) everywhere.
+* Language: TypeScript (strict mode) everywhere. TypeScript 6.0 is used for now:
+  `vue-tsc` (type-checking of the `.vue` files) does not support TypeScript 7 yet.
 * Build tooling: [electron-vite](https://electron-vite.org/) (Vite-based).
 * UI framework: [Vue 3](https://vuejs.org/) (Composition API, `<script setup lang="ts">` single-file components).
 * Graph rendering: a custom SVG renderer, with [d3-zoom](https://d3js.org/d3-zoom) for panning and zooming.
@@ -268,10 +269,14 @@ The code is split into three layers, so that a port to the Web touches the platf
    confirmation on closing a modified document). A future Web implementation would use the File System Access API
    or upload/download.
 
+The directories: `src/core/`, `src/editor/`, `src/platform/` (the interface in `types.ts`,
+the Electron implementation in `electron/`), `tests/`.
+
 ## Configuration
 
 The list of system node names and the relation colours are kept in a JSON config file
-(with bundled defaults), so that extending the list of system nodes requires no code changes.
+(`config/onted.config.json`, with built-in defaults for missing keys),
+so that extending the list of system nodes requires no code changes.
 
 ## Testing Approach
 
