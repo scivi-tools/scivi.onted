@@ -182,9 +182,31 @@ Notes:
 
 All the interactions should be also reachable via the main menu and right-click menu.
 
+### Interaction Details (as implemented; to be reviewed)
+
+* Shortcuts:
+  * The shortcuts with `Ctrl`/`Cmd` (undo/redo, select all, file operations, fit to window) belong to the platform:
+    in Electron, they are accelerators of the native main menu.
+  * The single-key shortcuts (`Shift + A`, `Shift + 1...8`, `Delete`/`Backspace`, `F2`, `Enter`, `Escape`)
+    are handled by the editor itself, by physical key position, and are ignored while typing in a text field.
+    The main menu only shows them in the item labels: registered as menu accelerators,
+    they could take these keys away from the text fields (e.g. on macOS).
+  * In a text field, undo/redo/select all act on the text.
+* `F2` renames the selected node (in addition to the double click); `Enter` moves the focus to the attributes;
+  `Escape` clears the selection.
+* `Shift + A` adds a node named "New Term" centred at the mouse pointer (or at the centre of the view)
+  and immediately starts renaming it; `Escape` keeps the default name.
+* Selection: a click selects a node or a relation (relations have a wider invisible hit area);
+  `Shift + Click` adds/removes an element; a click on the background clears the selection.
+  Dragging a selected node moves all the selected nodes; a drag is one undoable step.
+* Relations can also change their type: via the inspector, the context menu, or the main menu.
+  This also allows fixing the relations with invalid types found in loaded files.
+* The context menu is HTML (not native), so it will also work in the Web version.
+
 ## Attributes Editing
 
-The attributes are edited in an inspector panel docked at the side of the window.
+The attributes are edited in an inspector panel docked at the side of the window
+(when relations are selected, the panel shows their type instead).
 When a single node is selected, the panel shows its attributes as a table of key/value pairs,
 where each value has an explicit type (string, integer, float, boolean) with a type-appropriate editor.
 The panel allows adding, renaming, retyping, and deleting attributes. `Ctrl + Double Left-Click` on a node

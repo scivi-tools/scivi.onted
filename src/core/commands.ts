@@ -187,3 +187,19 @@ export function renameAttribute(nodeId: number, oldKey: string, newKey: string):
     },
   };
 }
+
+/** Changes the type (name) of a relation. */
+export function setRelationName(id: number, name: string): Command {
+  let old = '';
+  return {
+    label: 'Change relation type',
+    apply(ont) {
+      const r = ont.relations[relationIndex(ont, id)]!;
+      old = r.name;
+      r.name = name;
+    },
+    revert(ont) {
+      ont.relations[relationIndex(ont, id)]!.name = old;
+    },
+  };
+}

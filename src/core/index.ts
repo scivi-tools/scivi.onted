@@ -1,4 +1,5 @@
 /** The public API of the core: plain TypeScript, no DOM, no Vue, no Electron. */
+export * from './attributes';
 export * from './commands';
 export * from './config';
 export * from './document';

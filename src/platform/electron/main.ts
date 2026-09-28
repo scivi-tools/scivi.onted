@@ -2,7 +2,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import type { DocumentState, FileRef, OpenedFile } from '../types';
+import type { CommandState, DocumentState, FileRef, OpenedFile } from '../types';
 import { IPC } from './ipc';
 import { buildMenu } from './menu';
 
@@ -14,6 +14,13 @@ const ONT_FILTERS = [
 
 let mainWindow: BrowserWindow | null = null;
 let documentState: DocumentState = { fileName: null, modified: false };
+let commandStates: Readonly<Record<string, CommandState>> = {};
+let commandStatesJson = '';
+let menuUpdate: NodeJS.Timeout | null = null;
+
+function updateMenu(): void {
+  Menu.setApplicationMenu(buildMenu(() => mainWindow, commandStates));
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -103,6 +110,19 @@ function registerIpc(): void {
     return JSON.parse(text) as unknown;
   });
 
+  // The menu is rebuilt (rather than patched) so that labels update on every platform; debounced.
+  ipcMain.on(IPC.setCommandStates, (_e, states: Record<string, CommandState>) => {
+    const json = JSON.stringify(states);
+    if (json === commandStatesJson) return;
+    commandStatesJson = json;
+    commandStates = states;
+    if (menuUpdate) clearTimeout(menuUpdate);
+    menuUpdate = setTimeout(() => {
+      menuUpdate = null;
+      updateMenu();
+    }, 30);
+  });
+
   ipcMain.on(IPC.setDocumentState, (_e, state: DocumentState) => {
     documentState = state;
     const win = mainWindow;
@@ -116,7 +136,7 @@ function registerIpc(): void {
 app.setName(APP_NAME);
 void app.whenReady().then(() => {
   registerIpc();
-  Menu.setApplicationMenu(buildMenu(() => mainWindow));
+  updateMenu();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

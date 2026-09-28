@@ -14,12 +14,13 @@ import {
   renameNode,
   setAttribute,
   setLastId,
+  setRelationName,
   type Command,
   type Position,
 } from './commands';
 import { Emitter } from './events';
 import { History } from './history';
-import { SCIVI_NAMESPACE, findNode, type AttributeValue, type Ontology } from './model';
+import { SCIVI_NAMESPACE, findNode, findRelation, type AttributeValue, type Ontology } from './model';
 import { createEmptyOntology, parseOnt, serializeOnt } from './ont-format';
 import type { RelationType } from './relations';
 
@@ -211,8 +212,27 @@ export class OntDocument {
     if (rounded.size > 0) this.execute(moveNodes(rounded));
   }
 
+  /** Changes the type of the given relations (e.g. to fix a relation with an invalid type). */
+  setRelationType(relationIds: readonly number[], type: RelationType): void {
+    const commands = relationIds
+      .filter((id) => {
+        const r = findRelation(this.ontology, id);
+        if (!r) throw new Error(`No relation with ID ${id}`);
+        return r.name !== type;
+      })
+      .map((id) => setRelationName(id, type));
+    if (commands.length > 0) {
+      this.execute(compound(commands.length === 1 ? 'Change relation type' : 'Change relation types', commands));
+    }
+  }
+
   setAttribute(nodeId: number, key: string, value: AttributeValue): void {
     if (key === '') throw new Error('The attribute name cannot be empty');
+    if ((value.type === 'int' && !Number.isSafeInteger(value.value)) || (value.type === 'float' && !Number.isFinite(value.value))) {
+      throw new Error(`Invalid ${value.type} value: ${value.value}`);
+    }
+    const old = findNode(this.ontology, nodeId)?.attributes.get(key);
+    if (old && old.type === value.type && old.type !== 'json' && old.value === value.value) return;
     this.execute(setAttribute(nodeId, key, value));
   }
 
@@ -222,6 +242,9 @@ export class OntDocument {
 
   renameAttribute(nodeId: number, oldKey: string, newKey: string): void {
     if (newKey === '') throw new Error('The attribute name cannot be empty');
+    if (oldKey !== newKey && findNode(this.ontology, nodeId)?.attributes.has(newKey)) {
+      throw new Error(`The attribute "${newKey}" already exists`);
+    }
     if (oldKey !== newKey) this.execute(renameAttribute(nodeId, oldKey, newKey));
   }
 }

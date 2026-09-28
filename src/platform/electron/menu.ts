@@ -1,52 +1,82 @@
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron';
+import type { CommandState } from '../types';
 import { IPC } from './ipc';
 
+const RELATION_TYPES = ['is_a', 'a_part_of', 'has', 'is_instance', 'is_used', 'is_hosted', 'base_type', 'language'];
+
 /**
- * Builds the native main menu. The items that act on the document only send a command ID to the
- * renderer: the actual handlers live in the editor's command registry, which is shared by the menu,
- * the context menus, and the keyboard shortcuts.
+ * Builds the native main menu. Its items only send command IDs to the renderer: the handlers live
+ * in the editor's command registry, which is shared by the menu, the context menu, and the keyboard.
+ * Labels and enabled states come from the editor (`states`).
+ *
+ * Only Cmd/Ctrl shortcuts are registered as menu accelerators. The editor's single-key shortcuts
+ * (Shift+A, Shift+1...8, Delete, ...) are handled by the editor itself and are only shown in the
+ * labels: registered as accelerators, they could steal these keys from text fields.
  */
-export function buildMenu(getWindow: () => BrowserWindow | null): Menu {
+export function buildMenu(
+  getWindow: () => BrowserWindow | null,
+  states: Readonly<Record<string, CommandState>>,
+): Menu {
   const isMac = process.platform === 'darwin';
-  const send = (commandId: string) => () => getWindow()?.webContents.send(IPC.command, commandId);
-  const item = (label: string, commandId: string, accelerator?: string): MenuItemConstructorOptions => ({
-    label,
-    accelerator,
-    click: send(commandId),
-  });
+  const item = (id: string, fallbackLabel: string, accelerator?: string): MenuItemConstructorOptions => {
+    const state = states[id];
+    const label = state?.label ?? fallbackLabel;
+    return {
+      id,
+      label: !accelerator && state?.hint ? `${label}  (${state.hint})` : label,
+      accelerator,
+      enabled: state?.enabled ?? true,
+      click: () => getWindow()?.webContents.send(IPC.command, id),
+    };
+  };
+  const separator: MenuItemConstructorOptions = { type: 'separator' };
 
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' } as MenuItemConstructorOptions] : []),
     {
       label: 'File',
       submenu: [
-        item('New', 'file.new', 'CmdOrCtrl+N'),
-        item('Open…', 'file.open', 'CmdOrCtrl+O'),
-        { type: 'separator' },
-        item('Save', 'file.save', 'CmdOrCtrl+S'),
-        item('Save As…', 'file.saveAs', 'CmdOrCtrl+Shift+S'),
-        { type: 'separator' },
+        item('file.new', 'New', 'CmdOrCtrl+N'),
+        item('file.open', 'Open…', 'CmdOrCtrl+O'),
+        separator,
+        item('file.save', 'Save', 'CmdOrCtrl+S'),
+        item('file.saveAs', 'Save As…', 'CmdOrCtrl+Shift+S'),
+        separator,
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },
     {
       label: 'Edit',
       submenu: [
-        item('Undo', 'edit.undo', 'CmdOrCtrl+Z'),
-        item('Redo', 'edit.redo', 'CmdOrCtrl+Shift+Z'),
-        { type: 'separator' },
-        // Standard text editing, needed by the text fields (e.g. in the inspector).
+        item('edit.undo', 'Undo', 'CmdOrCtrl+Z'),
+        item('edit.redo', 'Redo', 'CmdOrCtrl+Shift+Z'),
+        separator,
+        // Standard text editing, for the text fields.
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
-        { role: 'selectAll' },
+        item('edit.selectAll', 'Select All', 'CmdOrCtrl+A'),
+        separator,
+        item('edit.addNode', 'Add Node'),
+        item('edit.rename', 'Rename Node'),
+        item('edit.attributes', 'Edit Attributes'),
+        {
+          label: 'Link Selected Nodes',
+          submenu: RELATION_TYPES.map((t) => item(`edit.link.${t}`, t)),
+        },
+        {
+          label: 'Change Relation Type',
+          submenu: RELATION_TYPES.map((t) => item(`edit.retype.${t}`, t)),
+        },
+        separator,
+        item('edit.delete', 'Delete'),
       ],
     },
     {
       label: 'View',
       submenu: [
-        item('Fit to Window', 'view.fit', 'CmdOrCtrl+0'),
-        { type: 'separator' },
+        item('view.fit', 'Fit to Window', 'CmdOrCtrl+0'),
+        separator,
         { role: 'toggleDevTools' },
         { role: 'togglefullscreen' },
       ],

@@ -1,22 +1,40 @@
 <script setup lang="ts">
 /**
- * The SVG canvas showing the ontology as a graph. Pan with the mouse, zoom with the wheel.
- * Rendering only for now; the editing interactions come with the next milestone.
+ * The SVG canvas: shows the ontology as a graph and handles the direct-manipulation interactions:
+ * selecting nodes and relations, dragging nodes, renaming in place, adding nodes, the context menu.
+ * Pan by dragging the background, zoom with the wheel.
  */
 import { select } from 'd3-selection';
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { RELATION_TYPES, isRelationType } from '../../core';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { RELATION_TYPES, findNode, isRelationType, type Position } from '../../core';
 import { arrowBetween, boundingBox, type Point, type Rect } from '../geometry';
 import { NODE_HEIGHT, nodeBox } from '../layout-metrics';
+import { BACKGROUND_MENU, NODE_MENU, RELATION_MENU, type MenuEntry } from '../menu-model';
+import { add, isSelected, selectOnly, toggle } from '../selection';
 import type { EditorSession } from '../session';
+import ContextMenu from './ContextMenu.vue';
 
 const props = defineProps<{ session: EditorSession }>();
 
+const NEW_NODE_NAME = 'New Term';
+const DRAG_THRESHOLD = 3;
+const INVALID_COLOR = '#888888';
+
 const svg = ref<SVGSVGElement | null>(null);
+const renameInput = ref<HTMLInputElement | null>(null);
 const transform = shallowRef<ZoomTransform>(zoomIdentity);
+/** Nodes being dragged, and the offset so far (in graph units). */
+const drag = shallowRef<{ ids: ReadonlySet<number>; dx: number; dy: number } | null>(null);
+const renaming = shallowRef<{ id: number; text: string } | null>(null);
+const contextMenu = shallowRef<{ x: number; y: number; entries: readonly MenuEntry[] } | null>(null);
+
 let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> | null = null;
-let unregisterFit: (() => void) | null = null;
+/** The last pointer position over the canvas, in graph coordinates. */
+let lastPointer: Point | null = null;
+const cleanups: (() => void)[] = [];
+
+// --- the view model ------------------------------------------------------------------------
 
 interface NodeView {
   id: number;
@@ -33,21 +51,22 @@ interface EdgeView {
   color: string;
   marker: string;
   valid: boolean;
+  selected: boolean;
 }
-
-const INVALID_COLOR = '#888888';
 
 const view = computed(() => {
   const ont = props.session.document.value.ontology;
   const config = props.session.config.value;
   const systemNames = new Set(config.systemNodeNames);
-  const selected = new Set(props.session.selection.value);
+  const sel = props.session.selection.value;
+  const d = drag.value;
 
   const boxes = new Map<number, Rect>();
   const nodes: NodeView[] = ont.nodes.map((n) => {
-    const box = nodeBox(n.name, n.x, n.y);
+    const moved = d?.ids.has(n.id);
+    const box = nodeBox(n.name, moved ? n.x + d!.dx : n.x, moved ? n.y + d!.dy : n.y);
     boxes.set(n.id, box);
-    return { id: n.id, name: n.name, box, system: systemNames.has(n.name), selected: selected.has(n.id) };
+    return { id: n.id, name: n.name, box, system: systemNames.has(n.name), selected: sel.nodes.includes(n.id) };
   });
 
   const edges: EdgeView[] = [];
@@ -64,6 +83,7 @@ const view = computed(() => {
       color: type ? config.relationColors[type] : INVALID_COLOR,
       marker: type ? `arrow-${type}` : 'arrow-invalid',
       valid: type !== null,
+      selected: sel.relations.includes(r.id),
     });
   }
   return { nodes, edges, boxes };
@@ -73,6 +93,36 @@ const markers = computed(() => [
   ...RELATION_TYPES.map((t) => ({ id: `arrow-${t}`, color: props.session.config.value.relationColors[t] })),
   { id: 'arrow-invalid', color: INVALID_COLOR },
 ]);
+
+/** Screen position of the rename field, relative to the canvas. */
+const renameStyle = computed(() => {
+  const r = renaming.value;
+  const box = r && view.value.boxes.get(r.id);
+  if (!box) return {};
+  const t = transform.value;
+  return {
+    left: `${t.applyX(box.x)}px`,
+    top: `${t.applyY(box.y)}px`,
+    minWidth: `${Math.max(box.width * t.k, 120)}px`,
+    height: `${box.height * t.k}px`,
+    fontSize: `${13 * t.k}px`,
+  };
+});
+
+// --- coordinates ---------------------------------------------------------------------------
+
+function toGraph(clientX: number, clientY: number): Point {
+  const r = svg.value!.getBoundingClientRect();
+  const [x, y] = transform.value.invert([clientX - r.left, clientY - r.top]);
+  return { x, y };
+}
+
+function viewCenter(): Point {
+  const r = svg.value!.getBoundingClientRect();
+  return toGraph(r.left + r.width / 2, r.top + r.height / 2);
+}
+
+// --- commands owned by the canvas ----------------------------------------------------------
 
 function fitToWindow(): void {
   const el = svg.value;
@@ -85,11 +135,172 @@ function fitToWindow(): void {
   }
   const margin = 40;
   const k = Math.max(0.05, Math.min(1.5, (width - 2 * margin) / bb.width, (height - 2 * margin) / bb.height));
-  const t = zoomIdentity
-    .translate(width / 2 - k * (bb.x + bb.width / 2), height / 2 - k * (bb.y + bb.height / 2))
-    .scale(k);
-  select(el).call(zoomBehavior.transform, t);
+  select(el).call(
+    zoomBehavior.transform,
+    zoomIdentity.translate(width / 2 - k * (bb.x + bb.width / 2), height / 2 - k * (bb.y + bb.height / 2)).scale(k),
+  );
 }
+
+/** Adds a node centred at the pointer (or at the centre of the view), and starts renaming it. */
+function addNode(): void {
+  const p = lastPointer ?? viewCenter();
+  const box = nodeBox(NEW_NODE_NAME, 0, 0);
+  const id = props.session.document.value.addNode(NEW_NODE_NAME, p.x - box.width / 2, p.y - box.height / 2);
+  props.session.select(selectOnly('node', id));
+  void startRename(id);
+}
+
+async function startRename(id: number): Promise<void> {
+  const node = findNode(props.session.document.value.ontology, id);
+  if (!node) return;
+  contextMenu.value = null;
+  renaming.value = { id, text: node.name };
+  await nextTick();
+  renameInput.value?.focus();
+  renameInput.value?.select();
+}
+
+function finishRename(commit: boolean): void {
+  const r = renaming.value;
+  if (!r) return;
+  renaming.value = null;
+  const name = renameInput.value?.value ?? r.text;
+  if (commit && name !== '') void props.session.runCommandFn(() => props.session.document.value.renameNode(r.id, name));
+}
+
+// --- pointer interactions ------------------------------------------------------------------
+
+interface PressState {
+  id: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+  /** What a click (a press without dragging) does to the selection. */
+  onClick: 'none' | 'deselect' | 'selectOnly';
+}
+
+let press: PressState | null = null;
+
+function blurTextFields(): void {
+  const el = document.activeElement;
+  if (el instanceof HTMLElement && el !== document.body) el.blur();
+}
+
+function onNodePointerDown(id: number, e: PointerEvent): void {
+  if (e.button !== 0) return;
+  blurTextFields();
+  const sel = props.session.selection.value;
+  const selected = isSelected(sel, 'node', id);
+  let onClick: PressState['onClick'] = 'none';
+  if (e.shiftKey) {
+    if (selected) onClick = 'deselect';
+    else props.session.select(add(sel, 'node', id));
+  } else if (selected) {
+    onClick = 'selectOnly';
+  } else {
+    props.session.select(selectOnly('node', id));
+  }
+  press = { id, startX: e.clientX, startY: e.clientY, moved: false, onClick };
+  window.addEventListener('pointermove', onPressMove);
+  window.addEventListener('pointerup', onPressEnd);
+  window.addEventListener('pointercancel', onPressCancel);
+}
+
+function onPressMove(e: PointerEvent): void {
+  if (!press) return;
+  if (!press.moved && Math.hypot(e.clientX - press.startX, e.clientY - press.startY) < DRAG_THRESHOLD) return;
+  press.moved = true;
+  const k = transform.value.k;
+  drag.value = {
+    ids: new Set(props.session.selection.value.nodes),
+    dx: (e.clientX - press.startX) / k,
+    dy: (e.clientY - press.startY) / k,
+  };
+}
+
+function endPress(): void {
+  window.removeEventListener('pointermove', onPressMove);
+  window.removeEventListener('pointerup', onPressEnd);
+  window.removeEventListener('pointercancel', onPressCancel);
+  press = null;
+  drag.value = null;
+}
+
+function onPressEnd(): void {
+  const p = press;
+  const d = drag.value;
+  endPress();
+  if (!p) return;
+  if (p.moved && d) {
+    const ont = props.session.document.value.ontology;
+    const positions = new Map<number, Position>();
+    for (const id of d.ids) {
+      const n = findNode(ont, id);
+      if (n) positions.set(id, { x: n.x + d.dx, y: n.y + d.dy });
+    }
+    props.session.document.value.moveNodes(positions);
+  } else if (p.onClick === 'deselect') {
+    props.session.select(toggle(props.session.selection.value, 'node', p.id));
+  } else if (p.onClick === 'selectOnly') {
+    props.session.select(selectOnly('node', p.id));
+  }
+}
+
+function onPressCancel(): void {
+  endPress();
+}
+
+function onNodeDoubleClick(id: number, e: MouseEvent): void {
+  if (e.ctrlKey || e.metaKey) {
+    props.session.select(selectOnly('node', id));
+    void props.session.runCommand('edit.attributes');
+  } else {
+    void startRename(id);
+  }
+}
+
+function onEdgePointerDown(id: number, e: PointerEvent): void {
+  if (e.button !== 0) return;
+  blurTextFields();
+  const sel = props.session.selection.value;
+  props.session.select(e.shiftKey ? toggle(sel, 'relation', id) : selectOnly('relation', id));
+}
+
+function onCanvasPointerDown(e: PointerEvent): void {
+  if (!(e.target as Element).closest('.node, .edge-hit')) blurTextFields();
+}
+
+function onCanvasPointerMove(e: PointerEvent): void {
+  lastPointer = toGraph(e.clientX, e.clientY);
+}
+
+function onBackgroundClick(e: MouseEvent): void {
+  if (!(e.target as Element).closest('.node, .edge-hit') && !e.shiftKey) props.session.select({ nodes: [], relations: [] });
+}
+
+function onContextMenu(e: MouseEvent): void {
+  e.preventDefault();
+  lastPointer = toGraph(e.clientX, e.clientY);
+  const target = e.target as Element;
+  const sel = props.session.selection.value;
+  const nodeEl = target.closest<SVGElement>('.node');
+  const edgeEl = target.closest<SVGElement>('.edge-hit');
+  let entries: readonly MenuEntry[];
+  if (nodeEl) {
+    const id = Number(nodeEl.dataset.id);
+    if (!isSelected(sel, 'node', id)) props.session.select(selectOnly('node', id));
+    entries = NODE_MENU;
+  } else if (edgeEl) {
+    const id = Number(edgeEl.dataset.id);
+    if (!isSelected(sel, 'relation', id)) props.session.select(selectOnly('relation', id));
+    entries = RELATION_MENU;
+  } else {
+    entries = BACKGROUND_MENU;
+  }
+  contextMenu.value = { x: e.clientX, y: e.clientY, entries };
+}
+
+// --- lifecycle -----------------------------------------------------------------------------
 
 onMounted(() => {
   const el = svg.value!;
@@ -97,84 +308,135 @@ onMounted(() => {
     .scaleExtent([0.05, 8])
     // Panning starts on the background only; the wheel zooms anywhere.
     .filter((event: MouseEvent | WheelEvent) => {
-      if (event.type !== 'wheel' && (event.target as Element).closest('.node')) return false;
+      if (event.type !== 'wheel' && (event.target as Element).closest('.node, .edge-hit')) return false;
       return (!event.ctrlKey || event.type === 'wheel') && !event.button;
     })
     .on('zoom', (event: { transform: ZoomTransform }) => {
       transform.value = event.transform;
     });
   select(el).call(zoomBehavior).on('dblclick.zoom', null);
-  unregisterFit = props.session.commands.register({ id: 'view.fit', label: 'Fit to Window', run: fitToWindow });
+
+  const c = props.session.commands;
+  const notTyping = () => !props.session.textFocused.value;
+  cleanups.push(
+    c.register({ id: 'view.fit', label: 'Fit to Window', run: fitToWindow }),
+    c.register({ id: 'edit.addNode', label: 'Add Node', isEnabled: notTyping, run: addNode }),
+    c.register({
+      id: 'edit.rename',
+      label: 'Rename Node',
+      isEnabled: () => props.session.selection.value.nodes.length === 1,
+      run: () => startRename(props.session.selection.value.nodes[0]!),
+    }),
+  );
   fitToWindow();
 });
 
-onBeforeUnmount(() => unregisterFit?.());
-
-function onNodeClick(id: number, event: MouseEvent): void {
-  const current = props.session.selection.value;
-  if (event.shiftKey) {
-    props.session.select(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
-  } else {
-    props.session.select([id]);
-  }
-}
-
-function onBackgroundClick(event: MouseEvent): void {
-  if (!(event.target as Element).closest('.node')) props.session.select([]);
-}
+onBeforeUnmount(() => {
+  endPress();
+  for (const f of cleanups) f();
+});
 </script>
 
 <template>
-  <svg ref="svg" class="canvas" @click="onBackgroundClick">
-    <defs>
-      <marker
-        v-for="m in markers"
-        :id="m.id"
-        :key="m.id"
-        viewBox="0 0 10 10"
-        refX="10"
-        refY="5"
-        markerWidth="10"
-        markerHeight="10"
-        markerUnits="userSpaceOnUse"
-        orient="auto"
-      >
-        <path d="M0,0 L10,5 L0,10 z" :fill="m.color" />
-      </marker>
-    </defs>
-    <g :transform="transform.toString()">
-      <g class="edges">
-        <line
-          v-for="e in view.edges"
-          :key="e.id"
-          :x1="e.start.x"
-          :y1="e.start.y"
-          :x2="e.end.x"
-          :y2="e.end.y"
-          :stroke="e.color"
-          :stroke-dasharray="e.valid ? undefined : '4 3'"
-          :marker-end="`url(#${e.marker})`"
-          class="edge"
-        />
-      </g>
-      <g class="nodes">
-        <g
-          v-for="n in view.nodes"
-          :key="n.id"
-          class="node"
-          :class="{ system: n.system, selected: n.selected }"
-          :transform="`translate(${n.box.x},${n.box.y})`"
-          @click.stop="onNodeClick(n.id, $event)"
+  <div class="canvas-wrap">
+    <svg
+      ref="svg"
+      class="canvas"
+      :class="{ dragging: drag !== null }"
+      @pointerdown="onCanvasPointerDown"
+      @pointermove="onCanvasPointerMove"
+      @pointerleave="lastPointer = null"
+      @click="onBackgroundClick"
+      @contextmenu="onContextMenu"
+    >
+      <defs>
+        <marker
+          v-for="m in markers"
+          :id="m.id"
+          :key="m.id"
+          viewBox="0 0 10 10"
+          refX="10"
+          refY="5"
+          markerWidth="10"
+          markerHeight="10"
+          markerUnits="userSpaceOnUse"
+          orient="auto"
         >
-          <rect :width="n.box.width" :height="n.box.height" rx="3" />
-          <text :x="n.box.width / 2" :y="NODE_HEIGHT / 2">{{ n.name }}</text>
+          <path d="M0,0 L10,5 L0,10 z" :fill="m.color" />
+        </marker>
+      </defs>
+      <g :transform="transform.toString()">
+        <g class="edges">
+          <g v-for="e in view.edges" :key="e.id">
+            <line v-if="e.selected" :x1="e.start.x" :y1="e.start.y" :x2="e.end.x" :y2="e.end.y" class="edge-halo" />
+            <line
+              :x1="e.start.x"
+              :y1="e.start.y"
+              :x2="e.end.x"
+              :y2="e.end.y"
+              :stroke="e.color"
+              :stroke-dasharray="e.valid ? undefined : '4 3'"
+              :marker-end="`url(#${e.marker})`"
+              class="edge"
+              :class="{ selected: e.selected }"
+            />
+            <line
+              :x1="e.start.x"
+              :y1="e.start.y"
+              :x2="e.end.x"
+              :y2="e.end.y"
+              class="edge-hit"
+              :data-id="e.id"
+              @pointerdown="onEdgePointerDown(e.id, $event)"
+            />
+          </g>
+        </g>
+        <g class="nodes">
+          <g
+            v-for="n in view.nodes"
+            :key="n.id"
+            class="node"
+            :class="{ system: n.system, selected: n.selected }"
+            :data-id="n.id"
+            :transform="`translate(${n.box.x},${n.box.y})`"
+            @pointerdown="onNodePointerDown(n.id, $event)"
+            @dblclick="onNodeDoubleClick(n.id, $event)"
+          >
+            <rect :width="n.box.width" :height="n.box.height" rx="3" />
+            <text :x="n.box.width / 2" :y="NODE_HEIGHT / 2">{{ n.name }}</text>
+          </g>
         </g>
       </g>
-    </g>
-  </svg>
+    </svg>
+    <input
+      v-if="renaming"
+      ref="renameInput"
+      class="rename"
+      :style="renameStyle"
+      :value="renaming.text"
+      spellcheck="false"
+      @keydown.enter.prevent="finishRename(true)"
+      @keydown.esc.prevent="finishRename(false)"
+      @blur="finishRename(true)"
+    />
+    <ContextMenu
+      v-if="contextMenu"
+      :session="session"
+      :entries="contextMenu.entries"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      @close="contextMenu = null"
+    />
+  </div>
 </template>
 
 <style scoped>
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
 .canvas {
   display: block;
   width: 100%;
@@ -183,8 +445,28 @@ function onBackgroundClick(event: MouseEvent): void {
   cursor: default;
   user-select: none;
 }
+.canvas.dragging,
+.canvas.dragging .node {
+  cursor: grabbing;
+}
 .edge {
   stroke-width: 1.5;
+  pointer-events: none;
+}
+.edge.selected {
+  stroke-width: 2.5;
+}
+.edge-halo {
+  stroke: var(--accent);
+  stroke-opacity: 0.3;
+  stroke-width: 8;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 10;
+  pointer-events: stroke;
 }
 .node rect {
   fill: var(--node-fill);
@@ -205,5 +487,16 @@ function onBackgroundClick(event: MouseEvent): void {
   dominant-baseline: central;
   fill: var(--text);
   pointer-events: none;
+}
+.rename {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Ubuntu, sans-serif;
+  text-align: center;
+  outline: none;
+  background: #fff;
 }
 </style>

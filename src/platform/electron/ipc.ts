@@ -6,5 +6,6 @@ export const IPC = {
   showError: 'onted:show-error',
   loadConfig: 'onted:load-config',
   setDocumentState: 'onted:set-document-state',
+  setCommandStates: 'onted:set-command-states',
   command: 'onted:command',
 } as const;

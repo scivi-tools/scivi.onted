@@ -20,6 +20,15 @@ export interface DocumentState {
   readonly modified: boolean;
 }
 
+/** The state of an editor command, for showing it in the host's menus. */
+export interface CommandState {
+  readonly enabled: boolean;
+  /** Label to show, e.g. "Undo Add Node". */
+  readonly label: string;
+  /** Human-readable shortcut, if the command has one. */
+  readonly hint?: string;
+}
+
 export interface Platform {
   /** Asks the user for a file to open. Resolves to null if cancelled. */
   openFile(): Promise<OpenedFile | null>;
@@ -41,6 +50,9 @@ export interface Platform {
 
   /** Reports the document state, so the host can show it (window title, "unsaved" mark, close confirmation). */
   setDocumentState(state: DocumentState): void;
+
+  /** Reports the state of the editor's commands, so the host's menus can show it. */
+  setCommandStates(states: Readonly<Record<string, CommandState>>): void;
 
   /** Subscribes to commands coming from the host, e.g. from the native main menu. */
   onCommand(handler: (commandId: string) => void): void;

@@ -136,3 +136,27 @@ describe('undo/redo', () => {
     expect(reasons).toEqual(['edit', 'undo', 'redo', 'saved']);
   });
 });
+
+describe('relation types and attribute checks', () => {
+  it('changes relation types as one undoable step', () => {
+    const doc = docWithNodes(3);
+    const ids = doc.link([1, 2], 3, 'is_a');
+    doc.setRelationType(ids, 'has');
+    expect(doc.ontology.relations.map((r) => r.name)).toEqual(['has', 'has']);
+    doc.undo();
+    expect(doc.ontology.relations.map((r) => r.name)).toEqual(['is_a', 'is_a']);
+  });
+
+  it('rejects renaming an attribute onto an existing one, and skips no-op edits', () => {
+    const doc = docWithNodes(1);
+    doc.setAttribute(1, 'a', { type: 'int', value: 1 });
+    doc.setAttribute(1, 'b', { type: 'int', value: 2 });
+    expect(() => doc.renameAttribute(1, 'a', 'b')).toThrow(/already exists/);
+    doc.setAttribute(1, 'a', { type: 'int', value: 1 });
+    expect(doc.undoLabel).toBe('Set attribute');
+    doc.undo();
+    doc.undo();
+    expect(doc.ontology.nodes[0]!.attributes.size).toBe(0);
+    expect(() => doc.setAttribute(1, 'x', { type: 'int', value: 1.5 })).toThrow();
+  });
+});
