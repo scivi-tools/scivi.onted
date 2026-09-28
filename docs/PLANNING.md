@@ -149,14 +149,14 @@ As the set of relations in SciVi is strictly limited to 8, the arrows don't can 
 displayed somewhere on the screen. So, the descriptions on top of the arrows can be omitted not to clutter the image.
 
 There is already a colour convention used in the SciVi papers:
-1. `is_a` - #0000FF.
-2. `a_part_of` - #FEAE00.
-3. `has` - #C80000.
-4. `is_instance` - #FF00FF.
-5. `is_used` - #B51700.
-6. `is_hosted` - #56C1FF.
-7. `base_type` - #B2B2B2.
-8. `language` - #FF9400.
+1. `is_a` - #0F01F5.
+2. `a_part_of` - #FF968D.
+3. `has` - #B82619.
+4. `is_instance` - #EA33F7.
+5. `is_used` - #55BB36.
+6. `is_hosted` - #73BEF9.
+7. `base_type` - #929292.
+8. `language` - #F09937.
 
 ## Interactions
 

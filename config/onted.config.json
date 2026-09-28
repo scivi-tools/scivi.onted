@@ -6,13 +6,13 @@
         "Setting"
     ],
     "relationColors": {
-        "is_a": "#0000FF",
-        "a_part_of": "#FEAE00",
-        "has": "#C80000",
-        "is_instance": "#FF00FF",
-        "is_used": "#B51700",
-        "is_hosted": "#56C1FF",
-        "base_type": "#B2B2B2",
-        "language": "#FF9400"
+        "is_a": "#0F01F5",
+        "a_part_of": "#FF968D",
+        "has": "#B82619",
+        "is_instance": "#EA33F7",
+        "is_used": "#55BB36",
+        "is_hosted": "#73BEF9",
+        "base_type": "#929292",
+        "language": "#F09937"
     }
 }
