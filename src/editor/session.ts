@@ -67,6 +67,7 @@ export class EditorSession {
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('focusin', () => this.updateTextFocus());
     window.addEventListener('focusout', () => setTimeout(() => this.updateTextFocus()));
+    window.addEventListener('focus', () => this.updateTextFocus());
     this.publishState();
   }
 
@@ -223,7 +224,7 @@ export class EditorSession {
     c.register({
       id: 'edit.delete',
       label: () => (sel().nodes.length === 0 && sel().relations.length > 0 ? 'Delete Relation' : 'Delete'),
-      isEnabled: () => !this.textFocused.value && !isEmpty(sel()),
+      isEnabled: () => !isEmpty(sel()),
       run: () => {
         doc().deleteElements(sel().nodes, sel().relations);
         this.select(EMPTY_SELECTION);
@@ -247,7 +248,7 @@ export class EditorSession {
       c.register({
         id: `edit.link.${type}`,
         label: type,
-        isEnabled: () => !this.textFocused.value && sel().nodes.length >= 2,
+        isEnabled: () => sel().nodes.length >= 2,
         run: () => this.link(type),
       });
     }

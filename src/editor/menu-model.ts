@@ -24,7 +24,7 @@ export const RELATION_MENU: readonly MenuEntry[] = [
 ];
 
 export const BACKGROUND_MENU: readonly MenuEntry[] = [
-  cmd('edit.addNode', 'Add Node Here'),
+  cmd('edit.addNodeHere'),
   separator,
   cmd('edit.selectAll'),
   cmd('view.fit'),

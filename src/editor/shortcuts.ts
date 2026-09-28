@@ -48,7 +48,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
 /** Human-readable shortcut of a command, for menus. */
 export function shortcutHint(commandId: string): string | undefined {
   const shift = isMac ? '⇧' : 'Shift+';
-  if (commandId === 'edit.addNode') return `${shift}A`;
+  if (commandId === 'edit.addNode' || commandId === 'edit.addNodeHere') return `${shift}A`;
   if (commandId.startsWith('edit.link.')) {
     const i = (RELATION_TYPES as readonly string[]).indexOf(commandId.slice('edit.link.'.length));
     return i >= 0 ? `${shift}${i + 1}` : undefined;

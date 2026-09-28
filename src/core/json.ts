@@ -276,3 +276,19 @@ export function writeJson(value: JsonValue): string {
   parts.push('\n');
   return parts.join('');
 }
+
+/**
+ * Serialises a value on a single line, e.g. `{"a": 1, "b": [true, null]}` (keys sorted, as in
+ * the files), for showing and editing JSON values in one-line text fields.
+ */
+export function writeJsonInline(value: JsonValue): string {
+  if (value === null) return 'null';
+  if (value === true) return 'true';
+  if (value === false) return 'false';
+  if (typeof value === 'string') return quote(value);
+  if (value instanceof JsonNumber) return value.raw;
+  if (Array.isArray(value)) return `[${value.map(writeJsonInline).join(', ')}]`;
+  return `{${sortedKeys(value)
+    .map((k) => `${quote(k)}: ${writeJsonInline(value.get(k)!)}`)
+    .join(', ')}}`;
+}

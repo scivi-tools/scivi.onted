@@ -1,5 +1,5 @@
 /** Helpers for typed attribute values: text input/output, defaults, and type conversion. */
-import { parseJson, writeJson } from './json';
+import { parseJson, writeJsonInline } from './json';
 import type { AttributeType, AttributeValue } from './model';
 import { attributeFromJson, attributeToJson } from './ont-format';
 
@@ -7,7 +7,7 @@ export const ATTRIBUTE_TYPES: readonly AttributeType[] = ['string', 'int', 'floa
 
 /** The value as a user would type it. */
 export function attributeToText(a: AttributeValue): string {
-  return a.type === 'json' ? writeJson(a.value).trimEnd() : String(a.value);
+  return a.type === 'json' ? writeJsonInline(a.value) : String(a.value);
 }
 
 /**

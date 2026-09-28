@@ -9,7 +9,7 @@ import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zo
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { RELATION_TYPES, findNode, isRelationType, type Position } from '../../core';
 import { arrowBetween, boundingBox, type Point, type Rect } from '../geometry';
-import { NODE_HEIGHT, nodeBox } from '../layout-metrics';
+import { NODE_HEIGHT, NODE_PADDING_X, nodeBox } from '../layout-metrics';
 import { BACKGROUND_MENU, NODE_MENU, RELATION_MENU, type MenuEntry } from '../menu-model';
 import { add, isSelected, selectOnly, toggle } from '../selection';
 import type { EditorSession } from '../session';
@@ -18,6 +18,9 @@ import ContextMenu from './ContextMenu.vue';
 const props = defineProps<{ session: EditorSession }>();
 
 const NEW_NODE_NAME = 'New Term';
+/** Length of the arrowheads; lines stop half-way into them, so their ends do not show at the tip. */
+const ARROW_LENGTH = 10;
+const LINE_INSET = ARROW_LENGTH / 2;
 const DRAG_THRESHOLD = 3;
 const INVALID_COLOR = '#888888';
 
@@ -27,11 +30,15 @@ const transform = shallowRef<ZoomTransform>(zoomIdentity);
 /** Nodes being dragged, and the offset so far (in graph units). */
 const drag = shallowRef<{ ids: ReadonlySet<number>; dx: number; dy: number } | null>(null);
 const renaming = shallowRef<{ id: number; text: string } | null>(null);
+/** The text in the rename field, as it is being typed. */
+const renameDraft = ref('');
 const contextMenu = shallowRef<{ x: number; y: number; entries: readonly MenuEntry[] } | null>(null);
 
 let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> | null = null;
 /** The last pointer position over the canvas, in graph coordinates. */
 let lastPointer: Point | null = null;
+/** Where the context menu was opened, in graph coordinates (for "Add Node Here"). */
+let contextPoint: Point | null = null;
 const cleanups: (() => void)[] = [];
 
 // --- the view model ------------------------------------------------------------------------
@@ -48,6 +55,8 @@ interface EdgeView {
   id: number;
   start: Point;
   end: Point;
+  /** Where the drawn line ends: short of `end`, inside the arrowhead. */
+  lineEnd: Point;
   color: string;
   marker: string;
   valid: boolean;
@@ -77,9 +86,15 @@ const view = computed(() => {
     const segment = arrowBetween(from, to);
     if (!segment) continue;
     const type = isRelationType(r.name) ? r.name : null;
+    const len = Math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y);
+    const inset = len > LINE_INSET ? LINE_INSET / len : 0;
     edges.push({
       id: r.id,
       ...segment,
+      lineEnd: {
+        x: segment.end.x - (segment.end.x - segment.start.x) * inset,
+        y: segment.end.y - (segment.end.y - segment.start.y) * inset,
+      },
       color: type ? config.relationColors[type] : INVALID_COLOR,
       marker: type ? `arrow-${type}` : 'arrow-invalid',
       valid: type !== null,
@@ -100,12 +115,15 @@ const renameStyle = computed(() => {
   const box = r && view.value.boxes.get(r.id);
   if (!box) return {};
   const t = transform.value;
+  // As wide as the node, growing with the text (as the node will), centred on the node.
+  const width = Math.max(box.width, nodeBox(renameDraft.value, 0, 0).width) * t.k;
   return {
-    left: `${t.applyX(box.x)}px`,
+    left: `${t.applyX(box.x + box.width / 2) - width / 2}px`,
     top: `${t.applyY(box.y)}px`,
-    minWidth: `${Math.max(box.width * t.k, 120)}px`,
+    width: `${width}px`,
     height: `${box.height * t.k}px`,
     fontSize: `${13 * t.k}px`,
+    padding: `0 ${(NODE_PADDING_X - 2) * t.k}px`,
   };
 });
 
@@ -141,9 +159,9 @@ function fitToWindow(): void {
   );
 }
 
-/** Adds a node centred at the pointer (or at the centre of the view), and starts renaming it. */
-function addNode(): void {
-  const p = lastPointer ?? viewCenter();
+/** Adds a node centred at the given point (or at the centre of the view), and starts renaming it. */
+function addNode(at: Point | null): void {
+  const p = at ?? viewCenter();
   const box = nodeBox(NEW_NODE_NAME, 0, 0);
   const id = props.session.document.value.addNode(NEW_NODE_NAME, p.x - box.width / 2, p.y - box.height / 2);
   props.session.select(selectOnly('node', id));
@@ -155,9 +173,15 @@ async function startRename(id: number): Promise<void> {
   if (!node) return;
   contextMenu.value = null;
   renaming.value = { id, text: node.name };
+  renameDraft.value = node.name;
   await nextTick();
   renameInput.value?.focus();
   renameInput.value?.select();
+}
+
+function onRenameBlur(): void {
+  // Switching to another application also blurs the field: keep editing then.
+  if (document.hasFocus()) finishRename(true);
 }
 
 function finishRename(commit: boolean): void {
@@ -280,7 +304,7 @@ function onBackgroundClick(e: MouseEvent): void {
 
 function onContextMenu(e: MouseEvent): void {
   e.preventDefault();
-  lastPointer = toGraph(e.clientX, e.clientY);
+  contextPoint = toGraph(e.clientX, e.clientY);
   const target = e.target as Element;
   const sel = props.session.selection.value;
   const nodeEl = target.closest<SVGElement>('.node');
@@ -316,11 +340,20 @@ onMounted(() => {
     });
   select(el).call(zoomBehavior).on('dblclick.zoom', null);
 
+  // Back from another application: continue renaming where it was left.
+  const onWindowFocus = () => {
+    if (renaming.value) renameInput.value?.focus();
+  };
+  window.addEventListener('focus', onWindowFocus);
+  cleanups.push(() => window.removeEventListener('focus', onWindowFocus));
+
   const c = props.session.commands;
-  const notTyping = () => !props.session.textFocused.value;
   cleanups.push(
     c.register({ id: 'view.fit', label: 'Fit to Window', run: fitToWindow }),
-    c.register({ id: 'edit.addNode', label: 'Add Node', isEnabled: notTyping, run: addNode }),
+    // At the pointer when invoked by the keyboard; at the centre of the view from the main menu.
+    c.register({ id: 'edit.addNode', label: 'Add Node', run: () => addNode(lastPointer) }),
+    // From the context menu: where the menu was opened.
+    c.register({ id: 'edit.addNodeHere', label: 'Add Node Here', run: () => addNode(contextPoint) }),
     c.register({
       id: 'edit.rename',
       label: 'Rename Node',
@@ -354,26 +387,26 @@ onBeforeUnmount(() => {
           v-for="m in markers"
           :id="m.id"
           :key="m.id"
-          viewBox="0 0 10 10"
-          refX="10"
+          :viewBox="`0 0 ${ARROW_LENGTH} 10`"
+          :refX="ARROW_LENGTH - LINE_INSET"
           refY="5"
-          markerWidth="10"
+          :markerWidth="ARROW_LENGTH"
           markerHeight="10"
           markerUnits="userSpaceOnUse"
           orient="auto"
         >
-          <path d="M0,0 L10,5 L0,10 z" :fill="m.color" />
+          <path :d="`M0,0 L${ARROW_LENGTH},5 L0,10 z`" :fill="m.color" />
         </marker>
       </defs>
       <g :transform="transform.toString()">
         <g class="edges">
           <g v-for="e in view.edges" :key="e.id">
-            <line v-if="e.selected" :x1="e.start.x" :y1="e.start.y" :x2="e.end.x" :y2="e.end.y" class="edge-halo" />
+            <line v-if="e.selected" :x1="e.start.x" :y1="e.start.y" :x2="e.lineEnd.x" :y2="e.lineEnd.y" class="edge-halo" />
             <line
               :x1="e.start.x"
               :y1="e.start.y"
-              :x2="e.end.x"
-              :y2="e.end.y"
+              :x2="e.lineEnd.x"
+              :y2="e.lineEnd.y"
               :stroke="e.color"
               :stroke-dasharray="e.valid ? undefined : '4 3'"
               :marker-end="`url(#${e.marker})`"
@@ -413,11 +446,12 @@ onBeforeUnmount(() => {
       ref="renameInput"
       class="rename"
       :style="renameStyle"
-      :value="renaming.text"
+      :value="renameDraft"
       spellcheck="false"
+      @input="renameDraft = ($event.target as HTMLInputElement).value"
       @keydown.enter.prevent="finishRename(true)"
       @keydown.esc.prevent="finishRename(false)"
-      @blur="finishRename(true)"
+      @blur="onRenameBlur"
     />
     <ContextMenu
       v-if="contextMenu"

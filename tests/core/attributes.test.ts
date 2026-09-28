@@ -47,3 +47,10 @@ describe('convertAttribute', () => {
     expect(convertAttribute({ type: 'json', value: [] }, 'int')).toEqual(defaultAttribute('int'));
   });
 });
+
+describe('attributeToText', () => {
+  it('writes JSON values on one line', () => {
+    const v = attributeFromText('{"b": [1, {"c": null}], "a": {}}', 'json')!;
+    expect(attributeToText(v)).toBe('{"a": {}, "b": [1, {"c": null}]}');
+  });
+});
