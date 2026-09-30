@@ -237,6 +237,15 @@ To increase the visibility, that would be great to draw some kind of "tunnels" w
 underlaying arrow remains straight, but the intersecting one has a little arc in the intersection point,
 so they are visually distinguishable.
 
+Implemented as follows:
+* Of two crossing arrows, the one with the larger ID jumps (so adding a relation never changes how the existing
+  ones are drawn); the arcs bulge up on the screen (to the left for vertical arrows).
+* No tunnels near the ends of arrows (at the nodes and under the arrowheads), between arrows sharing a node,
+  or for crossings at angles below 15° (for nearly parallel arrows, a tunnel would look like a loop).
+* Close crossings on the same arrow merge into one wider arc.
+* The crossings are found by a sweep over the arrows' bounding boxes; in graphs with more than 300 arrows,
+  the tunnels are recomputed when a drag ends rather than on every move.
+
 # Technologies to Use
 
 It has to be decided, which drawing API and which graph drawing library (if any) to use.

@@ -8,7 +8,7 @@ import { select } from 'd3-selection';
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { RELATION_TYPES, findNode, isRelationType, type Position } from '../../core';
-import { arrowBetween, boundingBox, type Point, type Rect } from '../geometry';
+import { arrowBetween, boundingBox, computeCrossings, jumpPath, type Point, type Rect, type Segment } from '../geometry';
 import { NODE_HEIGHT, NODE_PADDING_X, nodeBox } from '../layout-metrics';
 import { BACKGROUND_MENU, NODE_MENU, RELATION_MENU, type MenuEntry } from '../menu-model';
 import { add, isSelected, selectOnly, toggle } from '../selection';
@@ -21,6 +21,14 @@ const NEW_NODE_NAME = 'New Term';
 /** Length of the arrowheads; lines stop half-way into them, so their ends do not show at the tip. */
 const ARROW_LENGTH = 10;
 const LINE_INSET = ARROW_LENGTH / 2;
+/** Radius of the arcs ("tunnels") by which an arrow jumps over the arrows it crosses. */
+const JUMP_RADIUS = 5;
+/** No jumps this close to the ends of arrows: at the nodes, and under the arrowheads. */
+const JUMP_END_MARGIN = JUMP_RADIUS + ARROW_LENGTH;
+/** Arrows crossing at a smaller angle (degrees) do not jump: a tunnel would look like a loop. */
+const JUMP_MIN_ANGLE = 15;
+/** In larger graphs, the tunnels are recomputed when a drag ends, rather than on every move. */
+const LIVE_JUMPS_MAX_ARROWS = 300;
 const DRAG_THRESHOLD = 3;
 const INVALID_COLOR = '#888888';
 
@@ -55,8 +63,8 @@ interface EdgeView {
   id: number;
   start: Point;
   end: Point;
-  /** Where the drawn line ends: short of `end`, inside the arrowhead. */
-  lineEnd: Point;
+  /** The SVG path of the drawn line: it ends short of `end` (inside the arrowhead) and jumps over crossings. */
+  path: string;
   color: string;
   marker: string;
   valid: boolean;
@@ -78,7 +86,7 @@ const view = computed(() => {
     return { id: n.id, name: n.name, box, system: systemNames.has(n.name), selected: sel.nodes.includes(n.id) };
   });
 
-  const edges: EdgeView[] = [];
+  const segments: (Segment & { color: string; marker: string; valid: boolean; selected: boolean })[] = [];
   for (const r of ont.relations) {
     const from = boxes.get(r.sourceId);
     const to = boxes.get(r.destinationId);
@@ -86,21 +94,27 @@ const view = computed(() => {
     const segment = arrowBetween(from, to);
     if (!segment) continue;
     const type = isRelationType(r.name) ? r.name : null;
-    const len = Math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y);
-    const inset = len > LINE_INSET ? LINE_INSET / len : 0;
-    edges.push({
+    segments.push({
       id: r.id,
+      nodes: [r.sourceId, r.destinationId],
       ...segment,
-      lineEnd: {
-        x: segment.end.x - (segment.end.x - segment.start.x) * inset,
-        y: segment.end.y - (segment.end.y - segment.start.y) * inset,
-      },
       color: type ? config.relationColors[type] : INVALID_COLOR,
       marker: type ? `arrow-${type}` : 'arrow-invalid',
       valid: type !== null,
       selected: sel.relations.includes(r.id),
     });
   }
+
+  const crossings =
+    d && segments.length > LIVE_JUMPS_MAX_ARROWS
+      ? new Map<number, number[]>()
+      : computeCrossings(segments, { endMargin: JUMP_END_MARGIN, minAngle: JUMP_MIN_ANGLE });
+  const edges: EdgeView[] = segments.map((e) => {
+    const len = Math.hypot(e.end.x - e.start.x, e.end.y - e.start.y);
+    const inset = len > LINE_INSET ? LINE_INSET / len : 0;
+    const lineEnd = { x: e.end.x - (e.end.x - e.start.x) * inset, y: e.end.y - (e.end.y - e.start.y) * inset };
+    return { ...e, path: jumpPath(e.start, lineEnd, crossings.get(e.id) ?? [], JUMP_RADIUS) };
+  });
   return { nodes, edges, boxes };
 });
 
@@ -401,23 +415,17 @@ onBeforeUnmount(() => {
       <g :transform="transform.toString()">
         <g class="edges">
           <g v-for="e in view.edges" :key="e.id">
-            <line v-if="e.selected" :x1="e.start.x" :y1="e.start.y" :x2="e.lineEnd.x" :y2="e.lineEnd.y" class="edge-halo" />
-            <line
-              :x1="e.start.x"
-              :y1="e.start.y"
-              :x2="e.lineEnd.x"
-              :y2="e.lineEnd.y"
+            <path v-if="e.selected" :d="e.path" class="edge-halo" />
+            <path
+              :d="e.path"
               :stroke="e.color"
               :stroke-dasharray="e.valid ? undefined : '4 3'"
               :marker-end="`url(#${e.marker})`"
               class="edge"
               :class="{ selected: e.selected }"
             />
-            <line
-              :x1="e.start.x"
-              :y1="e.start.y"
-              :x2="e.end.x"
-              :y2="e.end.y"
+            <path
+              :d="e.path"
               class="edge-hit"
               :data-id="e.id"
               @pointerdown="onEdgePointerDown(e.id, $event)"
@@ -484,6 +492,7 @@ onBeforeUnmount(() => {
   cursor: grabbing;
 }
 .edge {
+  fill: none;
   stroke-width: 1.5;
   pointer-events: none;
 }
@@ -491,6 +500,7 @@ onBeforeUnmount(() => {
   stroke-width: 2.5;
 }
 .edge-halo {
+  fill: none;
   stroke: var(--accent);
   stroke-opacity: 0.3;
   stroke-width: 8;
@@ -498,6 +508,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 .edge-hit {
+  fill: none;
   stroke: transparent;
   stroke-width: 10;
   pointer-events: stroke;
