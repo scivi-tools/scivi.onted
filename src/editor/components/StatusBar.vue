@@ -25,6 +25,7 @@ const problems = computed(() => [
     <span>{{ stats.file }}<span v-if="stats.modified"> (modified)</span></span>
     <span class="muted">{{ stats.nodes }} nodes, {{ stats.relations }} relations</span>
     <span class="spacer" />
+    <span v-if="session.layoutRunning.value" class="muted">Arranging the graph…</span>
     <span v-if="problems.length > 0" class="problems" :title="problems.join('\n')">
       ⚠ {{ problems.length }} {{ problems.length === 1 ? 'problem' : 'problems' }}
     </span>

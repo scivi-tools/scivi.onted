@@ -56,9 +56,13 @@ describe('computeCrossings', () => {
     expect(computeCrossings([{ ...h, id: 3 }, v], { endMargin: 5 })).toEqual(new Map([[3, [30]]]));
   });
 
-  it('ignores crossings near the ends of either arrow (at the nodes)', () => {
-    const nearEnd = { id: 2, start: { x: 97, y: 0 }, end: { x: 97, y: 100 } };
-    expect(computeCrossings([h, nearEnd], { endMargin: 5 }).size).toBe(0);
+  it("ignores crossings near the jumping arrow's head, but not near the other arrow's head", () => {
+    // The jumping arrow (ID 2) would get an arc right before its own arrowhead: skipped.
+    const nearOwnHead = { id: 2, start: { x: 50, y: 0 }, end: { x: 50, y: 53 } };
+    expect(computeCrossings([h, nearOwnHead], { endMargin: 5 }).size).toBe(0);
+    // It crosses the other arrow (ID 1) right before that one's head: the arc stays.
+    const nearOtherHead = { id: 2, start: { x: 97, y: 0 }, end: { x: 97, y: 100 } };
+    expect(computeCrossings([h, nearOtherHead], { endMargin: 5 })).toEqual(new Map([[2, [50]]]));
     const sharedEnd = { id: 2, start: { x: 50, y: 0 }, end: { x: 100, y: 50 } };
     expect(computeCrossings([h, sharedEnd], { endMargin: 5 }).size).toBe(0);
   });
@@ -101,7 +105,7 @@ describe('jumpPath', () => {
     expect(jumpPath({ x: 100, y: 0 }, { x: 0, y: 0 }, [50], 5)).toBe('M100,0L55,0A5,5 0 0 0 45,0L0,0');
   });
 
-  it('merges close jumps into one arc', () => {
-    expect(jumpPath({ x: 0, y: 0 }, { x: 100, y: 0 }, [40, 46], 5)).toBe('M0,0L35,0A8,5 0 0 1 51,0L100,0');
+  it('merges close jumps into one (circular) arc', () => {
+    expect(jumpPath({ x: 0, y: 0 }, { x: 100, y: 0 }, [40, 46], 5)).toBe('M0,0L35,0A8,8 0 0 1 51,0L100,0');
   });
 });

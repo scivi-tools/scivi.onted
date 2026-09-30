@@ -207,3 +207,29 @@ export function jumpPath(start: Point, end: Point, jumps: readonly number[], rad
   }
   return path + `L${f(end.x)},${f(end.y)}`;
 }
+
+/** The number of arrows crossing a node box other than their own ends (lower is more readable). */
+export function countArrowsThroughBoxes(
+  segments: readonly (Segment & { readonly nodes: readonly [number, number] })[],
+  boxes: ReadonlyMap<number, Rect>,
+): number {
+  let n = 0;
+  for (const s of segments) {
+    const minX = Math.min(s.start.x, s.end.x);
+    const maxX = Math.max(s.start.x, s.end.x);
+    const minY = Math.min(s.start.y, s.end.y);
+    const maxY = Math.max(s.start.y, s.end.y);
+    for (const [id, b] of boxes) {
+      if (id === s.nodes[0] || id === s.nodes[1]) continue;
+      if (b.x > maxX || b.x + b.width < minX || b.y > maxY || b.y + b.height < minY) continue;
+      const c = [
+        { x: b.x, y: b.y },
+        { x: b.x + b.width, y: b.y },
+        { x: b.x + b.width, y: b.y + b.height },
+        { x: b.x, y: b.y + b.height },
+      ];
+      if ([0, 1, 2, 3].some((k) => segmentIntersection(s.start, s.end, c[k]!, c[(k + 1) % 4]!))) n++;
+    }
+  }
+  return n;
+}

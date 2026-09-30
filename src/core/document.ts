@@ -200,7 +200,8 @@ export class OntDocument {
     if (node.name !== name) this.execute(renameNode(id, name));
   }
 
-  moveNodes(positions: ReadonlyMap<number, Position>): void {
+  /** Moves nodes (one undoable step, optionally with a custom label). Unknown node IDs are an error. */
+  moveNodes(positions: ReadonlyMap<number, Position>, label?: string): void {
     const rounded = new Map<number, Position>();
     for (const [id, p] of positions) {
       const node = findNode(this.ontology, id);
@@ -209,7 +210,7 @@ export class OntDocument {
       const y = Math.round(p.y);
       if (node.x !== x || node.y !== y) rounded.set(id, { x, y });
     }
-    if (rounded.size > 0) this.execute(moveNodes(rounded));
+    if (rounded.size > 0) this.execute(moveNodes(rounded, label));
   }
 
   /** Changes the type of the given relations (e.g. to fix a relation with an invalid type). */

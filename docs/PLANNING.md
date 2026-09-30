@@ -230,6 +230,20 @@ be painted light-yellow.
 It would be great to have some rarely-used (no hotkey) auto-layout functions to layout the graph by minimising the
 intersections of arrows. Not a top priority, but nice feature.
 
+Implemented as follows (menu "Arrange", and "Auto-Layout" in the canvas context menu; one undoable step):
+* Hierarchical layout (ELK "layered", minimising arrow crossings), in two orientations:
+  vertical, with the arrows pointing up (as in the existing SciVi ontologies), and horizontal,
+  with the arrows pointing left. The horizontal one is much more compact when a term has many children,
+  since the node boxes are wider than they are tall.
+* Organic layout (ELK "stress", followed by ELK's overlap removal), for graphs without a clear hierarchy.
+* ELK optimises for arrows that bend around nodes, but the editor draws them straight. So for hierarchical
+  layouts, several ELK variants are computed and the one with the fewest crossings and arrows through other
+  nodes (as drawn by the editor) wins (only one variant above 200 nodes).
+  On the samples: crossings 360 -> 265 (vertical) / 238 (horizontal); arrows through other nodes 422 -> about 50-130.
+* The laid-out graph keeps its top-left corner, then the view is fitted to the window.
+* ELK runs in a Web Worker created from a Blob (workers from file:// are not allowed in Electron);
+  if that fails, it runs on the main thread. ELK is licensed under EPL-2.0 or GPL-3.0-or-later.
+
 ## Handling Arrow Intersections
 
 In general case, the arrow intersections are inevitable, as ontologies are often non-planar.

@@ -1,5 +1,6 @@
 /** The structure of the context menus, in terms of command IDs. */
 import { RELATION_TYPES } from '../core';
+import { LAYOUT_ALGORITHMS } from './layout';
 
 export type MenuEntry =
   | { readonly kind: 'command'; readonly id: string; readonly label?: string }
@@ -25,6 +26,8 @@ export const RELATION_MENU: readonly MenuEntry[] = [
 
 export const BACKGROUND_MENU: readonly MenuEntry[] = [
   cmd('edit.addNodeHere'),
+  separator,
+  { kind: 'submenu', label: 'Auto-Layout', entries: LAYOUT_ALGORITHMS.map((a) => cmd(`layout.${a}`)) },
   separator,
   cmd('edit.selectAll'),
   cmd('view.fit'),

@@ -160,3 +160,13 @@ describe('relation types and attribute checks', () => {
     expect(() => doc.setAttribute(1, 'x', { type: 'int', value: 1.5 })).toThrow();
   });
 });
+
+describe('moveNodes', () => {
+  it('can carry a custom undo label (e.g. for auto-layout)', () => {
+    const doc = docWithNodes(2);
+    doc.moveNodes(new Map([[1, { x: 5, y: 5 }], [2, { x: 50, y: 5 }]]), 'Auto-Layout');
+    expect(doc.undoLabel).toBe('Auto-Layout');
+    doc.moveNodes(new Map([[1, { x: 7, y: 5 }]]));
+    expect(doc.undoLabel).toBe('Move node');
+  });
+});

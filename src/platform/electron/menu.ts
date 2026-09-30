@@ -73,6 +73,14 @@ export function buildMenu(
       ],
     },
     {
+      label: 'Arrange',
+      submenu: [
+        item('layout.layered', 'Hierarchical Layout (Vertical)'),
+        item('layout.layeredHorizontal', 'Hierarchical Layout (Horizontal)'),
+        item('layout.stress', 'Organic Layout'),
+      ],
+    },
+    {
       label: 'View',
       submenu: [
         item('view.fit', 'Fit to Window', 'CmdOrCtrl+0'),

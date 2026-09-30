@@ -127,10 +127,10 @@ export interface Position {
   y: number;
 }
 
-export function moveNodes(positions: ReadonlyMap<number, Position>): Command {
+export function moveNodes(positions: ReadonlyMap<number, Position>, label?: string): Command {
   const old = new Map<number, Position>();
   return {
-    label: positions.size === 1 ? 'Move node' : 'Move nodes',
+    label: label ?? (positions.size === 1 ? 'Move node' : 'Move nodes'),
     apply(ont) {
       old.clear();
       for (const [id, p] of positions) {

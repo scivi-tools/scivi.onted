@@ -16,6 +16,9 @@ import {
 import type { CommandState, FileRef, Platform } from '../platform/types';
 import { CommandRegistry } from './commands';
 import { EMPTY_SELECTION, isEmpty, prune, type Selection } from './selection';
+import { LAYOUT_ALGORITHMS, LAYOUT_LABELS, computeLayout, type LayoutAlgorithm } from './layout';
+import { getLayoutEngine } from './layout-engine';
+import { nodeBox } from './layout-metrics';
 import { commandForKey, isTextInput, shortcutHint } from './shortcuts';
 
 export class EditorSession {
@@ -30,6 +33,8 @@ export class EditorSession {
   readonly textFocused = shallowRef(false);
   /** Incremented to ask the inspector to take the keyboard focus. */
   readonly inspectorFocusRequest = shallowRef(0);
+  /** The auto-layout being computed, if any. */
+  readonly layoutRunning = shallowRef<LayoutAlgorithm | null>(null);
 
   readonly issues = computed(() => validateOntology(this.document.value.ontology));
 
@@ -39,6 +44,7 @@ export class EditorSession {
     void this.document.value;
     void this.selection.value;
     void this.textFocused.value;
+    void this.layoutRunning.value;
     const states: Record<string, CommandState> = {};
     for (const c of this.commands.all()) {
       states[c.id] = { enabled: this.commands.isEnabled(c.id), label: this.commands.label(c.id), hint: shortcutHint(c.id) };
@@ -143,6 +149,32 @@ export class EditorSession {
     this.selection.value = selection;
   }
 
+  /**
+   * Lays out the whole ontology (one undoable step), keeping its top-left corner in place,
+   * then fits it to the window. Edits made while the layout is computed are respected: the
+   * result is dropped if the document was replaced, and nodes added meanwhile keep their places.
+   */
+  async autoLayout(algorithm: LayoutAlgorithm): Promise<void> {
+    if (this.layoutRunning.value) return;
+    const doc = this.document.value;
+    const ont = doc.ontology;
+    if (ont.nodes.length < 2) return;
+    this.layoutRunning.value = algorithm;
+    try {
+      const boxes = new Map(ont.nodes.map((n) => [n.id, nodeBox(n.name, n.x, n.y)]));
+      const positions = await computeLayout(await getLayoutEngine(), ont, boxes, algorithm);
+      if (this.document.value !== doc) return;
+      const existing = new Set(doc.ontology.nodes.map((n) => n.id));
+      for (const id of positions.keys()) if (!existing.has(id)) positions.delete(id);
+      doc.moveNodes(positions, 'Auto-Layout');
+      await this.commands.run('view.fit');
+    } catch (e) {
+      await this.platform.showError('The auto-layout failed.', e instanceof Error ? e.message : String(e));
+    } finally {
+      this.layoutRunning.value = null;
+    }
+  }
+
   /** Links the selected nodes: each earlier-selected node to the last-selected one. */
   link(type: RelationType): void {
     const nodes = this.selection.value.nodes;
@@ -238,6 +270,14 @@ export class EditorSession {
         this.inspectorFocusRequest.value++;
       },
     });
+    for (const algorithm of LAYOUT_ALGORITHMS) {
+      c.register({
+        id: `layout.${algorithm}`,
+        label: LAYOUT_LABELS[algorithm],
+        isEnabled: () => this.layoutRunning.value === null && doc().ontology.nodes.length >= 2,
+        run: () => this.autoLayout(algorithm),
+      });
+    }
     for (const type of RELATION_TYPES) {
       c.register({
         id: `edit.retype.${type}`,
