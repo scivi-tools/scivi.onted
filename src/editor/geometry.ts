@@ -135,7 +135,21 @@ export function computeCrossings(segments: readonly Segment[], options: Crossing
       if (!hit) continue;
       const dCur = hit.t * cur.len;
       const dOther = hit.u * other.len;
-      if (dCur < m || cur.len - dCur < m || dOther < m || other.len - dOther < m) continue;
+      // When the non-tunneled line crosses the tunneled one too close to arrowhead and the arc is added, then the
+      // arrowhead is put along the arc direction, which is not the direction of the line. This is ugly, so we opt out
+      // the arc in this case.
+      // In cntrast, if the tunneled line crosses the non-tunneled one close to its (non-tunneled) arrowhead,
+      // the arc shall appear.
+      // The tunneled arc is the one with larger ID.
+      // HINT: for checking both ends, both lines, you can use
+      // `if (dCur < m || cur.len - dCur < m || dOther < m || other.len - dOther < m) continue;`
+      if (cur.s.id > other.s.id) { // `cur` is tunneled.
+        if (cur.len - dCur < m) // Check arrowhead proximity for it.
+          continue;
+      } else { // `other` s tunneled.
+        if (other.len - dOther < m) // Check arrowhead proximity for the second one instead.
+          continue;
+      }
       if (minSin > 0) {
         const sin = Math.abs(
           (cur.s.end.x - cur.s.start.x) * (other.s.end.y - other.s.start.y) -
@@ -188,7 +202,8 @@ export function jumpPath(start: Point, end: Point, jumps: readonly number[], rad
   const at = (d: number) => `${f(start.x + dx * d)},${f(start.y + dy * d)}`;
   let path = `M${f(start.x)},${f(start.y)}`;
   for (const [from, to] of spans) {
-    path += `L${at(from)}A${f((to - from) / 2)},${f(radius)} 0 0 ${sweep} ${at(to)}`;
+    const r = f((to - from) / 2);
+    path += `L${at(from)}A${r},${r} 0 0 ${sweep} ${at(to)}`;
   }
   return path + `L${f(end.x)},${f(end.y)}`;
 }
