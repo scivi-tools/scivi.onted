@@ -13,7 +13,7 @@ import {
   type EditorConfig,
   type RelationType,
 } from '../core';
-import type { CommandState, FileRef, Platform } from '../platform/types';
+import type { CommandState, FileRef, OpenedFile, Platform } from '../platform/types';
 import { CommandRegistry } from './commands';
 import { EMPTY_SELECTION, isEmpty, prune, type Selection } from './selection';
 import { LAYOUT_ALGORITHMS, LAYOUT_LABELS, computeLayout, type LayoutAlgorithm } from './layout';
@@ -75,6 +75,8 @@ export class EditorSession {
     window.addEventListener('focusout', () => setTimeout(() => this.updateTextFocus()));
     window.addEventListener('focus', () => this.updateTextFocus());
     this.publishState();
+    // After the initial state, so that the host knows this editor is blank before giving it a file.
+    this.platform.onOpenDocument((file) => void this.loadDocument(file));
   }
 
   /** Runs a command, reporting errors to the user. */
@@ -133,16 +135,27 @@ export class EditorSession {
   }
 
   private publishState(): void {
+    const doc = this.document.value;
+    const file = this.file.value;
     this.platform.setDocumentState({
-      fileName: this.file.value?.name ?? null,
-      modified: this.document.value.isModified,
+      fileName: file?.name ?? null,
+      filePath: file?.path ?? null,
+      modified: doc.isModified,
+      blank: file === null && !doc.isModified && !doc.canUndo && doc.ontology.nodes.length === 0,
     });
   }
 
-  /** Asks whether unsaved changes may be discarded; true if there are none. */
-  private async confirmDiscard(): Promise<boolean> {
-    if (!this.document.value.isModified) return true;
-    return this.platform.confirm('The ontology has unsaved changes.', 'Do you want to discard them?', 'Discard Changes');
+  /** Shows a document given by the host (which only gives one to a blank editor). */
+  private async loadDocument(opened: OpenedFile): Promise<void> {
+    let doc: OntDocument;
+    try {
+      doc = OntDocument.fromText(opened.content);
+    } catch (e) {
+      this.publishState(); // Still blank: tell the host the file is not shown here.
+      await this.platform.showError(`Cannot open "${opened.name}".`, e instanceof Error ? e.message : String(e));
+      return;
+    }
+    this.setDocument(doc, { path: opened.path, name: opened.name });
   }
 
   select(selection: Selection): void {
@@ -189,30 +202,9 @@ export class EditorSession {
     // In a text field, Undo/Redo/Select All act on the text, as usual.
     const inText = () => isTextInput(document.activeElement);
 
-    c.register({
-      id: 'file.new',
-      label: 'New',
-      run: async () => {
-        if (await this.confirmDiscard()) this.setDocument(OntDocument.createEmpty(), null);
-      },
-    });
-    c.register({
-      id: 'file.open',
-      label: 'Open…',
-      run: async () => {
-        if (!(await this.confirmDiscard())) return;
-        const opened = await this.platform.openFile();
-        if (!opened) return;
-        let d: OntDocument;
-        try {
-          d = OntDocument.fromText(opened.content);
-        } catch (e) {
-          await this.platform.showError(`Cannot open "${opened.name}".`, e instanceof Error ? e.message : String(e));
-          return;
-        }
-        this.setDocument(d, { path: opened.path, name: opened.name });
-      },
-    });
+    // Where a new or opened document goes (this window or another one) is up to the host.
+    c.register({ id: 'file.new', label: 'New', run: () => this.platform.requestNewDocument() });
+    c.register({ id: 'file.open', label: 'Open…', run: () => this.platform.requestOpenFile() });
     const save = async (target: FileRef | null): Promise<void> => {
       const d = doc();
       try {

@@ -1,6 +1,11 @@
 /** IPC channel names shared by the main process and the preload script. */
 export const IPC = {
-  openFile: 'onted:open-file',
+  requestOpenFile: 'onted:request-open-file',
+  requestNewDocument: 'onted:request-new-document',
+  /** Main -> renderer: a document to show. */
+  openDocument: 'onted:open-document',
+  /** Renderer -> main: ready to receive documents. */
+  ready: 'onted:ready',
   saveFile: 'onted:save-file',
   confirm: 'onted:confirm',
   showError: 'onted:show-error',

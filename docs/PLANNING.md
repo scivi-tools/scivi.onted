@@ -260,6 +260,22 @@ Implemented as follows:
 * The crossings are found by a sweep over the arrows' bounding boxes; in graphs with more than 300 arrows,
   the tunnels are recomputed when a drag ends rather than on every move.
 
+## Multiple Documents
+
+Every document has its own window, with its own editor, undo history and inspector.
+On macOS, the windows share a tabbing identifier, so they can be native tabs: as the system setting
+"Prefer tabs when opening documents" says, or with Window > Merge All Windows (the Window and View menus have
+the standard tab commands, and the tab bar's "+" opens a new document). On Linux, they are separate windows.
+
+* New (`Cmd + N`) opens a new window with an empty ontology.
+* Open (`Cmd + O`) opens the file in the current window if that one holds a blank document (new, empty, unmodified),
+  and in a new window otherwise. A file that is already open (also through a symbolic link) brings its window
+  forward instead of being opened twice.
+* The menu acts on the focused window, and shows its state (e.g. the Undo label).
+* Closing a window with unsaved changes asks about it; quitting asks about every such window, and Cancel stops quitting.
+* The folder of the last file opened or saved is shared by all windows (for the running session only).
+* Planned: opening `.ont` files from Finder (Dock icon, "Open With"), once the application is packaged.
+
 # Technologies to Use
 
 It has to be decided, which drawing API and which graph drawing library (if any) to use.

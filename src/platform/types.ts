@@ -17,7 +17,14 @@ export interface OpenedFile extends FileRef {
 export interface DocumentState {
   /** File name, or null for a new document that has not been saved yet. */
   readonly fileName: string | null;
+  /** The file's path (see FileRef.path), or null for a new document. */
+  readonly filePath: string | null;
   readonly modified: boolean;
+  /**
+   * True for a new, empty, unmodified document (e.g. right after start): the host may open a file
+   * in its place rather than in a new window.
+   */
+  readonly blank: boolean;
 }
 
 /** The state of an editor command, for showing it in the host's menus. */
@@ -30,8 +37,23 @@ export interface CommandState {
 }
 
 export interface Platform {
-  /** Asks the user for a file to open. Resolves to null if cancelled. */
-  openFile(): Promise<OpenedFile | null>;
+  /**
+   * Asks the user for a file to open. The host decides where it goes: into this editor (through
+   * `onOpenDocument`) if it holds a blank document, or elsewhere (e.g. a new window, or the window
+   * that already shows that file).
+   */
+  requestOpenFile(): void;
+
+  /** Asks the host for a new, empty document (e.g. in a new window). */
+  requestNewDocument(): void;
+
+  /**
+   * Subscribes to documents the host gives to this editor to show: the file of a newly opened
+   * window, or a file opened in place of a blank document. The editor must report its document
+   * state (setDocumentState) after handling each one, whether it could be loaded or not.
+   * Call this after the editor has reported its initial state.
+   */
+  onOpenDocument(handler: (file: OpenedFile) => void): void;
 
   /**
    * Saves the content to the given file, or asks the user where to save it if `target` is null
