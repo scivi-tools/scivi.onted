@@ -1,7 +1,7 @@
 /** The Electron main process: window, native menu, dialogs, and file access. */
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { CommandState, DocumentState, FileRef, OpenedFile } from '../types';
 import { IPC } from './ipc';
 import { buildMenu } from './menu';
@@ -14,6 +14,11 @@ const ONT_FILTERS = [
 
 let mainWindow: BrowserWindow | null = null;
 let documentState: DocumentState = { fileName: null, modified: false };
+/**
+ * The directory of the last file opened or saved, where the Open and Save As dialogs start.
+ * Kept for the running session only (not stored on disk).
+ */
+let lastDirectory: string | undefined;
 let commandStates: Readonly<Record<string, CommandState>> = {};
 let commandStatesJson = '';
 let menuUpdate: NodeJS.Timeout | null = null;
@@ -67,10 +72,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC.openFile, async (): Promise<OpenedFile | null> => {
     const win = mainWindow;
     if (!win) return null;
-    const result = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: ONT_FILTERS });
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: ONT_FILTERS,
+      defaultPath: lastDirectory,
+    });
     const path = result.filePaths[0];
     if (result.canceled || !path) return null;
-    return { path, name: basename(path), content: await readFile(path, 'utf-8') };
+    const content = await readFile(path, 'utf-8');
+    lastDirectory = dirname(path);
+    return { path, name: basename(path), content };
   });
 
   ipcMain.handle(IPC.saveFile, async (_e, content: string, target: FileRef | null): Promise<FileRef | null> => {
@@ -78,11 +89,15 @@ function registerIpc(): void {
     if (!path) {
       const win = mainWindow;
       if (!win) return null;
-      const result = await dialog.showSaveDialog(win, { defaultPath: 'untitled.ont', filters: ONT_FILTERS });
+      const result = await dialog.showSaveDialog(win, {
+        defaultPath: lastDirectory ? join(lastDirectory, 'untitled.ont') : 'untitled.ont',
+        filters: ONT_FILTERS,
+      });
       if (result.canceled || !result.filePath) return null;
       path = result.filePath;
     }
     await writeFile(path, content, 'utf-8');
+    lastDirectory = dirname(path);
     return { path, name: basename(path) };
   });
 
