@@ -2,13 +2,18 @@
  * The preload script: exposes a narrow API to the renderer (which runs with context isolation
  * and without Node.js). This object is exactly the `Platform` interface.
  */
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { CommandState, DocumentState, FileRef, OpenedFile, Platform } from '../types';
 import { IPC } from './ipc';
 
 const api: Platform = {
   requestOpenFile: () => ipcRenderer.send(IPC.requestOpenFile),
   requestNewDocument: () => ipcRenderer.send(IPC.requestNewDocument),
+  openDroppedFiles: (files: readonly File[]) => {
+    // The renderer cannot see file paths; the preload script can.
+    const paths = files.map((f) => webUtils.getPathForFile(f)).filter((p) => p !== '');
+    if (paths.length > 0) ipcRenderer.send(IPC.openPaths, paths);
+  },
   onOpenDocument: (handler: (file: OpenedFile) => void) => {
     ipcRenderer.on(IPC.openDocument, (_event, file: OpenedFile) => handler(file));
     // Now the main process may send the document this window was opened for, if any.

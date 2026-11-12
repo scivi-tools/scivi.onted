@@ -1,0 +1,32 @@
+#!/bin/sh
+# onted: opens ontologies in SciVi.OntEd from the command line.
+#
+#   onted                  starts SciVi.OntEd (or brings it to the front)
+#   onted a.ont b.ont      opens the files in SciVi.OntEd (in new windows or tabs of the running application)
+#
+# Installation: see "Command line" in README.md.
+
+# Absolute paths, so that the running application finds the files whatever its working directory.
+for arg do
+  shift
+  case "$arg" in
+    /* | -*) set -- "$@" "$arg" ;;
+    *) set -- "$@" "$PWD/$arg" ;;
+  esac
+done
+
+case "$(uname -s)" in
+  Darwin)
+    # `open` starts the application if needed, and hands the files to it.
+    if [ "$#" -eq 0 ]; then exec open -a "SciVi.OntEd"; else exec open -a "SciVi.OntEd" "$@"; fi
+    ;;
+  *)
+    appimage="${ONTED_APPIMAGE:-$HOME/Applications/SciVi.OntEd.AppImage}"
+    if [ ! -x "$appimage" ]; then
+      echo "onted: cannot find $appimage (set ONTED_APPIMAGE to the AppImage's path)" >&2
+      exit 1
+    fi
+    # If SciVi.OntEd is running already, it takes the files over and this process ends at once.
+    nohup "$appimage" "$@" >/dev/null 2>&1 &
+    ;;
+esac

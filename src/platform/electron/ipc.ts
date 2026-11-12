@@ -2,6 +2,8 @@
 export const IPC = {
   requestOpenFile: 'onted:request-open-file',
   requestNewDocument: 'onted:request-new-document',
+  /** Renderer -> main: files dropped onto a window (their paths). */
+  openPaths: 'onted:open-paths',
   /** Main -> renderer: a document to show. */
   openDocument: 'onted:open-document',
   /** Renderer -> main: ready to receive documents. */

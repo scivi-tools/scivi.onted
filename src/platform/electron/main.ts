@@ -6,8 +6,9 @@
  * opening documents" says, or with Window > Merge All Windows).
  */
 import { app, BrowserWindow, dialog, ipcMain, Menu, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { statSync } from 'node:fs';
 import { readFile, realpath, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { CommandState, DocumentState, FileRef, OpenedFile } from '../types';
 import { IPC } from './ipc';
 import { buildMenu } from './menu';
@@ -180,16 +181,21 @@ function show(dw: DocWindow): void {
   dw.win.focus();
 }
 
-/**
- * Asks for a file and opens it: brings forward the window already showing it, or opens it in
- * `from` if that holds a blank document, or else in a new window.
- */
+/** Asks for a file and opens it (see openPath). */
 async function openFile(from: DocWindow | null): Promise<void> {
   const options = { properties: ['openFile' as const], filters: ONT_FILTERS, defaultPath: lastDirectory };
   const result = from ? await dialog.showOpenDialog(from.win, options) : await dialog.showOpenDialog(options);
   const path = result.filePaths[0];
-  if (result.canceled || !path) return;
+  if (!result.canceled && path) await openPath(path, from);
+}
 
+/**
+ * Opens a file: brings forward the window already showing it, or opens it in `from` if that holds
+ * a blank document (also while its editor is still loading), or else in a new window.
+ * All the ways of opening files end here: the Open dialog, Finder and the Dock icon (macOS),
+ * the command line, and files dropped onto a window.
+ */
+async function openPath(path: string, from: DocWindow | null): Promise<void> {
   const existing = await windowShowingFile(path);
   if (existing) {
     show(existing);
@@ -205,17 +211,61 @@ async function openFile(from: DocWindow | null): Promise<void> {
   lastDirectory = dirname(path);
   const file: OpenedFile = { path, name: basename(path), content };
 
-  if (from && !from.win.isDestroyed() && from.ready && from.state.blank && !from.pending && !from.incoming) {
-    from.incoming = file.path;
-    from.win.webContents.send(IPC.openDocument, file);
+  if (from && !from.win.isDestroyed() && from.state.blank && !from.pending && !from.incoming) {
+    if (from.ready) {
+      from.incoming = file.path;
+      from.win.webContents.send(IPC.openDocument, file);
+    } else {
+      from.pending = file; // Given to the editor once it is ready.
+      from.win.setTitle(`${file.name} — ${APP_NAME}`);
+      return; // The window shows itself when it is ready.
+    }
+    show(from);
   } else {
     createWindow(file);
   }
 }
 
+/** Number of openPaths calls in progress (so that no extra blank window is opened meanwhile). */
+let openingFiles = 0;
+
+/** Opens several files in turn: the first may fill the blank window `from`, the others get new windows. */
+async function openPaths(paths: readonly string[], from: DocWindow | null): Promise<void> {
+  openingFiles++;
+  try {
+    for (const path of paths) await openPath(path, from);
+  } finally {
+    openingFiles--;
+  }
+}
+
+/**
+ * The files named on a command line (relative paths are resolved against `cwd`). Everything that is
+ * not an existing file is skipped: the executable, options, and, when running from source, the
+ * application's directory.
+ */
+function filesFromArgs(argv: readonly string[], cwd: string): string[] {
+  const files: string[] = [];
+  for (const arg of argv.slice(1)) {
+    if (arg.startsWith('-')) continue;
+    const path = resolve(cwd, arg);
+    try {
+      if (statSync(path).isFile()) files.push(path);
+    } catch {
+      // Not a file.
+    }
+  }
+  return files;
+}
+
 function registerIpc(): void {
   ipcMain.on(IPC.requestOpenFile, (e) => void openFile(fromEvent(e) ?? null));
   ipcMain.on(IPC.requestNewDocument, () => createWindow(null));
+  ipcMain.on(IPC.openPaths, (e, paths: unknown) => {
+    if (!Array.isArray(paths)) return;
+    const files = paths.filter((p): p is string => typeof p === 'string' && p !== '');
+    void openPaths(files, fromEvent(e) ?? null);
+  });
 
   ipcMain.on(IPC.ready, (e) => {
     const dw = fromEvent(e);
@@ -259,17 +309,7 @@ function registerIpc(): void {
     else await dialog.showMessageBox(options);
   });
 
-  // The config lives in `config/onted.config.json` next to the sources (the editor is run from source).
-  ipcMain.handle(IPC.loadConfig, async (): Promise<unknown> => {
-    const path = join(app.getAppPath(), 'config', 'onted.config.json');
-    let text: string;
-    try {
-      text = await readFile(path, 'utf-8');
-    } catch {
-      return null;
-    }
-    return JSON.parse(text) as unknown;
-  });
+  ipcMain.handle(IPC.loadConfig, () => loadConfig());
 
   ipcMain.on(IPC.setCommandStates, (e, states: Record<string, CommandState>) => {
     const dw = fromEvent(e);
@@ -288,18 +328,89 @@ function registerIpc(): void {
   });
 }
 
+/**
+ * The config: the bundled `config/onted.config.json` (next to the sources, or in the packaged
+ * application's resources), overridden key by key by the user's `onted.config.json` in the
+ * application-data folder (macOS: ~/Library/Application Support/SciVi.OntEd; Linux: ~/.config/SciVi.OntEd).
+ */
+async function loadConfig(): Promise<unknown> {
+  const bundledPath = app.isPackaged
+    ? join(process.resourcesPath, 'config', 'onted.config.json')
+    : join(app.getAppPath(), 'config', 'onted.config.json');
+  const read = async (path: string): Promise<Record<string, unknown> | null> => {
+    let text: string;
+    try {
+      text = await readFile(path, 'utf-8');
+    } catch {
+      return null; // No such file.
+    }
+    try {
+      const value = JSON.parse(text) as unknown;
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+    } catch {
+      // Reported below.
+    }
+    throw new Error(`${path} is not a JSON object`);
+  };
+  const bundled = await read(bundledPath);
+  const user = await read(USER_CONFIG_PATH);
+  if (!user) return bundled;
+  const merged: Record<string, unknown> = { ...bundled, ...user };
+  // Relation colours are merged per relation type, so a user config may change just one colour.
+  const colors = (v: unknown) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  if (bundled?.['relationColors'] !== undefined || user['relationColors'] !== undefined) {
+    merged['relationColors'] = { ...colors(bundled?.['relationColors']), ...colors(user['relationColors']) };
+  }
+  return merged;
+}
+
 app.setName(APP_NAME);
-void app.whenReady().then(() => {
-  registerIpc();
-  updateMenu();
-  createWindow(null);
-  // macOS: the "+" button of the tab bar.
-  app.on('new-window-for-tab', () => createWindow(null));
-  // macOS: the Dock icon was clicked with no windows open.
-  app.on('activate', () => {
+/** Shared by the packaged application and runs from source (whose other data is kept apart, see below). */
+const USER_CONFIG_PATH = join(app.getPath('appData'), APP_NAME, 'onted.config.json');
+// Running from source must not hand its files over to an installed copy that is running (or the
+// other way round): keep its data, including the single-instance lock, in a folder of its own.
+if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), `${APP_NAME} (development)`));
+
+/** Files to open that arrived before the application was ready (macOS: launched from Finder or the Dock). */
+const filesAtLaunch: string[] = [];
+let started = false;
+
+// macOS: files opened from Finder, dropped on the Dock icon, or given to `open -a`.
+// This is emitted before 'ready' when the application is launched for a file.
+app.on('open-file', (event, path) => {
+  event.preventDefault();
+  if (started) void openPaths([path], focusedWindow());
+  else filesAtLaunch.push(path);
+});
+
+// One running instance: started again (e.g. `onted file.ont` on Linux), it hands its files to this one.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    const files = filesFromArgs(argv, workingDirectory);
+    const target = focusedWindow();
+    if (files.length > 0) void openPaths(files, target);
+    else if (target) show(target);
+    else createWindow(null);
+  });
+
+  void app.whenReady().then(async () => {
+    registerIpc();
+    updateMenu();
+    // macOS: the "+" button of the tab bar.
+    app.on('new-window-for-tab', () => createWindow(null));
+    // macOS: the Dock icon was clicked with no windows open.
+    app.on('activate', () => {
+      if (windows.size === 0 && openingFiles === 0) createWindow(null);
+    });
+
+    started = true;
+    const files = [...filesFromArgs(process.argv, process.cwd()), ...filesAtLaunch];
+    if (files.length > 0) await openPaths(files, null);
     if (windows.size === 0) createWindow(null);
   });
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

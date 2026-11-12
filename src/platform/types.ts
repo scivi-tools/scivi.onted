@@ -47,6 +47,9 @@ export interface Platform {
   /** Asks the host for a new, empty document (e.g. in a new window). */
   requestNewDocument(): void;
 
+  /** Opens files dropped onto the editor (where they go is up to the host, as for requestOpenFile). */
+  openDroppedFiles(files: readonly File[]): void;
+
   /**
    * Subscribes to documents the host gives to this editor to show: the file of a newly opened
    * window, or a file opened in place of a blank document. The editor must report its document

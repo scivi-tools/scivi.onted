@@ -274,7 +274,20 @@ the standard tab commands, and the tab bar's "+" opens a new document). On Linux
 * The menu acts on the focused window, and shows its state (e.g. the Undo label).
 * Closing a window with unsaved changes asks about it; quitting asks about every such window, and Cancel stops quitting.
 * The folder of the last file opened or saved is shared by all windows (for the running session only).
-* Planned: opening `.ont` files from Finder (Dock icon, "Open With"), once the application is packaged.
+* `.ont` files are also opened from Finder (double click, "Open With", the Dock icon), from the command line
+  (`scripts/onted`), and by dropping them onto a window. The application runs as a single instance:
+  started again with files, it hands them to the running one. Files given at launch open without an extra blank window.
+
+## Packaging
+
+* electron-builder (`electron-builder.yml`): a `.dmg` for macOS, an AppImage for Linux. No developer-certificate
+  signing (the application is open source: everyone builds it for themselves); macOS builds are signed ad-hoc,
+  which Apple Silicon requires to run them.
+* The application is the default one for `.ont` files.
+* The config is built in (from `config/onted.config.json`); a user config in the application-data folder overrides
+  it key by key. Runs from source keep their other data apart from the installed application, so that they never
+  hand their files over to it.
+* The icon (`resources/icon.svg`) is a draft: a small ontology graph in the relation colours.
 
 # Technologies to Use
 

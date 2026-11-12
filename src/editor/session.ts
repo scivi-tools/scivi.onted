@@ -33,6 +33,8 @@ export class EditorSession {
   readonly textFocused = shallowRef(false);
   /** Incremented to ask the inspector to take the keyboard focus. */
   readonly inspectorFocusRequest = shallowRef(0);
+  /** True while files are dragged over the window (to show where they can be dropped). */
+  readonly dropActive = shallowRef(false);
   /** The auto-layout being computed, if any. */
   readonly layoutRunning = shallowRef<LayoutAlgorithm | null>(null);
 
@@ -74,9 +76,40 @@ export class EditorSession {
     window.addEventListener('focusin', () => this.updateTextFocus());
     window.addEventListener('focusout', () => setTimeout(() => this.updateTextFocus()));
     window.addEventListener('focus', () => this.updateTextFocus());
+    this.acceptDroppedFiles();
     this.publishState();
     // After the initial state, so that the host knows this editor is blank before giving it a file.
     this.platform.onOpenDocument((file) => void this.loadDocument(file));
+  }
+
+  /** Files dropped onto the window are opened (by the host: here, if this document is blank, or elsewhere). */
+  private acceptDroppedFiles(): void {
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    let depth = 0; // dragenter/dragleave also fire for every element crossed inside the window
+    window.addEventListener('dragenter', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth++;
+      this.dropActive.value = true;
+    });
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = 'copy';
+    });
+    window.addEventListener('dragleave', (e) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) this.dropActive.value = false;
+    });
+    window.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      this.dropActive.value = false;
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (files.length > 0) this.platform.openDroppedFiles(files);
+    });
   }
 
   /** Runs a command, reporting errors to the user. */

@@ -81,6 +81,7 @@ function resetWidth(): void {
       <InspectorPanel :session="session" class="inspector" />
     </div>
     <StatusBar :session="session" class="status" />
+    <div v-if="session.dropActive.value" class="drop-overlay"><span>Drop to open</span></div>
   </div>
 </template>
 
@@ -130,5 +131,24 @@ function resetWidth(): void {
 .status {
   grid-column: 1 / span 2;
   border-top: 1px solid var(--border);
+}
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  pointer-events: none;
+}
+.drop-overlay span {
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 15px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
 }
 </style>

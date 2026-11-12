@@ -26,10 +26,42 @@ Other scripts:
 | `npm run build`     | build into `out/`                                    |
 | `npm start`         | run the built app                                    |
 
+## Installing the application
+
+`npm run dist` builds the application for the system it runs on (`npm run dist:mac`, `npm run dist:linux`
+for a specific one), into `dist/`.
+
+* **macOS:** open `dist/SciVi.OntEd-<version>-<arch>.dmg` and drag SciVi.OntEd to Applications.
+  The application is not signed with a developer certificate (only ad-hoc), which is fine on the Mac it was
+  built on. A copy built elsewhere is blocked by macOS at first; allow it in System Settings > Privacy & Security,
+  or run `xattr -dr com.apple.quarantine /Applications/SciVi.OntEd.app`.
+* **Linux:** copy `dist/SciVi.OntEd.AppImage` to `~/Applications/` and make it executable (`chmod +x`).
+
+SciVi.OntEd registers itself as the default application for `.ont` files, so they open with a double click in
+Finder, with "Open With", or by dropping them on the Dock icon. If another application had been chosen for
+`.ont` files before, choose SciVi.OntEd in Finder's Get Info > Open with > Change All.
+Files can also be dropped onto any open SciVi.OntEd window.
+
+## Command line
+
+`scripts/onted` opens ontologies from the command line: `onted a.ont b.ont` (in new windows or tabs of the running
+application; files that are open already are brought to the front). Put it on your `PATH`, e.g.:
+
+```sh
+ln -s "$PWD/scripts/onted" /usr/local/bin/onted    # or into ~/bin, if that is on your PATH
+```
+
+On macOS, it uses the installed application. On Linux, it uses `~/Applications/SciVi.OntEd.AppImage`
+(or the AppImage named by the `ONTED_APPIMAGE` environment variable).
+
 ## Configuration
 
 `config/onted.config.json` holds the names of the system nodes (drawn in light yellow)
 and the colours of the relations. Missing keys fall back to the built-in defaults.
+
+It is built into the application. To change the settings of an installed application, put an
+`onted.config.json` into `~/Library/Application Support/SciVi.OntEd/` (macOS) or `~/.config/SciVi.OntEd/`
+(Linux): its keys override the built-in ones (relation colours one by one).
 
 ## Project layout
 
@@ -40,6 +72,8 @@ src/editor/             the UI (Vue 3): the canvas, the panels, the command regi
 src/platform/types.ts   the interface the editor needs from its host
 src/platform/electron/  the Electron implementation: main process, preload script, native menu
 config/                 the editor configuration
+resources/              the application icon (icon.svg is the source of icon.png)
+scripts/onted           the command-line launcher
 tests/                  unit tests
 docs/                   planning, sample ontologies
 ```

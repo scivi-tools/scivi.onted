@@ -1,0 +1,43 @@
+# Packaging with electron-builder (https://www.electron.build): `npm run dist`.
+# macOS: dist/SciVi.OntEd-<version>-<arch>.dmg (and the app itself in dist/mac-<arch>/).
+# Linux: dist/SciVi.OntEd.AppImage.
+appId: tools.scivi.onted
+productName: SciVi.OntEd
+directories:
+  output: dist
+  # The icon (resources/icon.png, made from resources/icon.svg).
+  buildResources: resources
+# Everything the application needs is bundled into out/ by electron-vite.
+files:
+  - out/**/*
+  - package.json
+  - '!node_modules/**/*'
+# The default config, read from the application's resources (a user config may override it).
+extraResources:
+  - from: config/onted.config.json
+    to: config/onted.config.json
+# SciVi.OntEd is the default application for .ont files (Finder, "Open With", the Dock icon).
+fileAssociations:
+  - ext: ont
+    name: SciVi Ontology
+    description: SciVi lightweight ontology
+    role: Editor
+    rank: Owner
+    mimeType: application/x-scivi-ontology
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  # Not signed with a developer certificate: ad-hoc signing ("-") keeps the application runnable
+  # on Apple Silicon after electron-builder has changed it. Builds are for the machine they are made on.
+  identity: '-'
+  hardenedRuntime: false
+linux:
+  target: AppImage
+  category: Science
+  artifactName: ${productName}.${ext}
+  # Lets desktop environments match the windows to the application's desktop entry.
+  syncDesktopName: true
+# The main process has no runtime dependencies to rebuild.
+npmRebuild: false
+# No auto-update: nothing is published.
+publish: null
