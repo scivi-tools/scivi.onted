@@ -17,8 +17,9 @@ done
 
 case "$(uname -s)" in
   Darwin)
-    # `open` starts the application if needed, and hands the files to it.
-    if [ "$#" -eq 0 ]; then exec open -a "SciVi.OntEd"; else exec open -a "SciVi.OntEd" "$@"; fi
+    # `open` starts the application if needed, and hands the files to it. The application is found by
+    # its bundle ID (appId in electron-builder.yml): `open -a` fails on the dot in "SciVi.OntEd".
+    if [ "$#" -eq 0 ]; then exec open -b tools.scivi.onted; else exec open -b tools.scivi.onted "$@"; fi
     ;;
   *)
     appimage="${ONTED_APPIMAGE:-$HOME/Applications/SciVi.OntEd.AppImage}"
